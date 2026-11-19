@@ -17,7 +17,7 @@ component "base waves\none target each" as BASES <<app>>
 component "harness wave\nconcurrent when disjoint" as WAVE <<app>>
 component "dependents after parent\n-browser and solidity" as SOL <<app>>
 component "elapsed per name\nsummary requires a duration" as ELAP <<app>>
-component "type=local mode=max\n--load and --push" as CACHE <<app>>
+component "type=local mode=max\n--load exports · both import" as CACHE <<app>>
 component "RUN --mount=type=cache\napt · npm · go · pip" as MOUNT <<app>>
 
 SCH ARROW_MAIN BASES
@@ -43,9 +43,10 @@ end note
 
 note bottom of CACHE
   **Deploy still rebuilds on push.**
-  That build uses the other driver,
-  and both modes share one local cache
-  so the host architecture can hit.
+  The container driver imports the
+  local cache so the host architecture
+  can hit. Its own cache stores the
+  multi-platform build result.
 end note
 
 note bottom of MOUNT

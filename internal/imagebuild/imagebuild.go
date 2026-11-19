@@ -332,8 +332,8 @@ func ArgRef(argv []string) (string, bool) {
 	return "", false
 }
 
-// CacheFlags names the local BuildKit cache shared by --load and --push.
-func (b *Builder) CacheFlags(argv []string) []string {
+// CacheFlags imports the named cache and exports it for local builds.
+func (b *Builder) CacheFlags(push bool, argv []string) []string {
 	if envflag.Off(b.env("PROVEO_BUILDKIT_CACHE")) {
 		return nil
 	}
@@ -354,7 +354,11 @@ func (b *Builder) CacheFlags(argv []string) []string {
 		b.UI.Warnf("buildkit cache dir %s is not writable; building without a named cache", dest)
 		return nil
 	}
-	return []string{"--cache-from=type=local,src=" + dest, "--cache-to=type=local,dest=" + dest + ",mode=max"}
+	flags := []string{"--cache-from=type=local,src=" + dest}
+	if !push {
+		flags = append(flags, "--cache-to=type=local,dest="+dest+",mode=max")
+	}
+	return flags
 }
 
 var registryDNS = regexp.MustCompile(`(?i)temporary failure in name resolution|lookup registry-1\.docker\.io|no such host|server misbehaving`)
@@ -416,7 +420,7 @@ func (b *Builder) Build(push bool, args []string) error {
 			return err
 		}
 	}
-	cache := b.CacheFlags(args)
+	cache := b.CacheFlags(push, args)
 
 	invoke := func(pull []string) (string, error) {
 		argv := append(append(append(append([]string{}, out...), pull...), cache...), args...)
@@ -438,6 +442,18 @@ func (b *Builder) Build(push bool, args []string) error {
 			target = path.Base(RefRepo(ref))
 		}
 		b.UI.Failf("%s", RegistryDNSHelp(target))
+	}
+	if err != nil {
+		var failure string
+		for line := range strings.SplitSeq(log, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "ERROR: failed to ") {
+				failure = strings.TrimPrefix(line, "ERROR: ")
+			}
+		}
+		if failure != "" {
+			return fmt.Errorf("%s: %w", failure, err)
+		}
 	}
 	return err
 }

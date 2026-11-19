@@ -49,6 +49,52 @@ func TestEveryLocalImageStaysUnderTheSbxLayerCap(t *testing.T) {
 	}
 }
 
+func TestHermesAddsOneLayerToItsUpstreamImage(t *testing.T) {
+	const ref = "proveo/hermes:local"
+	if err := imagetest.DaemonReady(); err != nil {
+		t.Skip(err)
+	}
+	if !imagetest.Present(ref) {
+		t.Skip("build the local Hermes image first")
+	}
+	local := imagetest.Docker(time.Minute, nil, "image", "inspect", ref, "--format", "{{json .}}")
+	if !local.OK() {
+		t.Fatalf("inspect %s: %v\n%s", ref, local.Err, local.Out)
+	}
+	var image struct {
+		Os, Architecture string
+		Config           imageConfig
+		RootFS           struct{ Layers []string }
+	}
+	if err := json.Unmarshal([]byte(local.Out), &image); err != nil {
+		t.Fatal(err)
+	}
+	version := image.Config.Labels["proveo.agent.version"]
+	if version == "" {
+		t.Fatal("Hermes image has no pinned upstream version")
+	}
+	upstream := imagetest.Docker(time.Minute, nil, "buildx", "imagetools", "inspect",
+		"nousresearch/hermes-agent:"+version, "--format", "{{json .Image}}")
+	if !upstream.OK() {
+		t.Fatalf("inspect Hermes upstream: %v\n%s", upstream.Err, upstream.Out)
+	}
+	var platforms map[string]struct {
+		RootFS struct {
+			Layers []string `json:"diff_ids"`
+		} `json:"rootfs"`
+	}
+	if err := json.Unmarshal([]byte(upstream.Out), &platforms); err != nil {
+		t.Fatal(err)
+	}
+	platform := image.Os + "/" + image.Architecture
+	base := platforms[platform].RootFS.Layers
+	layers := image.RootFS.Layers
+	if len(base) == 0 || len(layers) != len(base)+1 || !slices.Equal(layers[:len(base)], base) {
+		t.Errorf("%s %s has %d layers, want the %d upstream layers followed by one Proveo layer",
+			ref, platform, len(layers), len(base))
+	}
+}
+
 type imageConfig struct {
 	User       string
 	WorkingDir string
@@ -91,7 +137,6 @@ func TestAFlatStageKeepsTheConfigOfTheLayersItReplaces(t *testing.T) {
 	}
 	for _, c := range []struct{ spec, dockerfile, layered, flat string }{
 		{"base", "defs/base/Dockerfile", "base-full", ""},
-		{"hermes", "defs/hermes/Dockerfile", "hermes-upstream", "hermes-flat"},
 	} {
 		t.Run(c.dockerfile, func(t *testing.T) {
 			df := filepath.Join(root, c.dockerfile)

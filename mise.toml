@@ -156,7 +156,7 @@ usage = '''
 arg "[target]" help="a registry target, or all; optional with --cli" {
   choices "all" "base" "base-node" "base-node-browser" "claudecode" "claudecode-browser" "claudecode-solidity" "codex" "codex-browser" "cursor" "cursor-browser" "hermes" "opencode" "opencode-browser"
 }
-flag "--cli [version]" value_optional=#true default_missing="patch" help="first cut a CLI release at version (patch when bare; minor, major or vX.Y.Z), wrangler deploy apps/cli, then push main and the tag; name a target before it"
+flag "--cli [version]" value_optional=#true default_missing="patch" help="first cut a CLI release at version (patch when bare; minor, major or vX.Y.Z), wrangler deploy apps/cli, then push main and the tag; either order works with a bare --cli"
 flag "--yes" help="--cli: answer its question before publishing (unattended runs)"
 flag "--tag <tag>" default="latest" help="image tag to publish (promoted from the :local build)"
 flag "--print" help="print the plan instead of running it"

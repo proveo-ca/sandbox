@@ -106,15 +106,26 @@ func TestFleetMainTestWithoutATargetIsTheImageGate(t *testing.T) {
 	}
 }
 
-func TestFleetMainRefusesACLIVersionThatIsATarget(t *testing.T) {
+func TestFleetMainDeployCLIOptionalVersion(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][]string{{"-print", "-cli", "-cli-version=all", "deploy"}, {"-print", "-cli", "-cli-version=0.3.2", "deploy", "codex"}} {
+	for _, args := range [][]string{{"-print", "-cli", "-cli-version=all", "deploy", "codex"}, {"-print", "-cli", "-cli-version=0.3.2", "deploy", "codex"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, noEnv, repoRoot, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
 			t.Errorf("run(%q) = %d with stdout %q, want 2 before any plan", args, code, stdout.String())
 		}
 		if !strings.Contains(stderr.String(), "name the target before --cli") {
 			t.Errorf("run(%q) stderr = %q, want the fix: the target goes before --cli", args, stderr.String())
+		}
+	}
+	for _, target := range []string{"all", "hermes"} {
+		var before, after, stderr bytes.Buffer
+		beforeArgs := []string{"-print", "-cli", "-cli-version=" + target, "deploy"}
+		afterArgs := []string{"-print", "-cli", "deploy", target}
+		if code := run(beforeArgs, noEnv, repoRoot, &before, &stderr); code != 0 {
+			t.Fatalf("run(%q) = %d: %s", beforeArgs, code, &stderr)
+		}
+		if code := run(afterArgs, noEnv, repoRoot, &after, &stderr); code != 0 || before.String() != after.String() {
+			t.Fatalf("deploy --cli %s and deploy %s --cli printed different plans", target, target)
 		}
 	}
 	var stdout, stderr bytes.Buffer
