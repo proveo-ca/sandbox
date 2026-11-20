@@ -415,9 +415,9 @@
 │ ✓ git, shell    Ada Example <ada@example.invalid> · git's global config · GitHub later · prompt kit later            │
 │                                                                                                                      │
 ├── subscriptions ──                                                                                                   │
-│ › claudecode    (•) not signed in     ( ) sign in                                                                    │
+│ › claudecode    (•) not in sbx        ( ) sign in                                                                    │
 │   codex         (•) signed in         ( ) sign in again     ( ) sign out                                             │
-│   cursor        (•) not signed in     ( ) sign in                                                                    │
+│   cursor        (•) not in sbx        ( ) sign in                                                                    │
 │   opencode      ✓ [stored — type to replace              ]                                                           │
 │                                                                                                                      │
 ├── API keys ───                                                                                                       │
@@ -434,7 +434,7 @@
 │ ↑↓ row · ←→ choose · enter run 1 step · esc back · ctrl+c quit                                                       │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  › not signed in — leave it; claudecode shows its own login at its next run, and sbx keeps what it signs in
+  › not in sbx — leave it; claudecode shows its own login at its next run, and sbx keeps what it signs in
 -- p3_80x24.txt --
 ╭── proveo init ───────────────────────────────────────────────────────────────╮
 │ Store agent credentials                                            page 3/4  │
@@ -442,9 +442,9 @@
 │ ! sbx           kept 0.50.0 · Docker signed in · 2 checks need you           │
 │ ✓ git, shell    Ada Example <ada@example.invalid> · 2 later                  │
 ├── subscriptions ──                                                           │
-│ › claudecode    (•) not signed in     ( ) sign in                            │
+│ › claudecode    (•) not in sbx        ( ) sign in                            │
 │   codex         (•) signed in         ( ) sign in again     ( ) sign out     │
-│   cursor        (•) not signed in     ( ) sign in                            │
+│   cursor        (•) not in sbx        ( ) sign in                            │
 │   opencode      ✓ [stored — type to replace              ]                   │
 ├── API keys ───                                                               │
 │   anthropic     ! [this host's env only — Enter to import]                   │
@@ -458,8 +458,8 @@
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ ↑↓ row · ←→ choose · enter run 1 step · esc back · ctrl+c quit               │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-  › not signed in — leave it; claudecode shows its own login at its next run,
-    and sbx keeps what it signs in
+  › not in sbx — leave it; claudecode shows its own login at its next run, and
+    sbx keeps what it signs in
 -- p4_120x36.txt --
 ╭── proveo init ───────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ Name the operator                                                                                          page 4/4  │

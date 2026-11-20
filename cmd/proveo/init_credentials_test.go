@@ -595,14 +595,14 @@ func TestTheCursorOpensOnTheTopRowWithAnAnswer(t *testing.T) {
 	}
 	f.Glyphs = choiceui.GlyphsNerd
 	frame := f.Render(120, 40)
-	if !regexp.MustCompile(`(?m)^│ › ` + regexp.QuoteMeta(slots[0].Label) + `\s+\(•\) not signed in`).MatchString(frame) {
+	if !regexp.MustCompile(`(?m)^│ › ` + regexp.QuoteMeta(slots[0].Label) + `\s+\(•\) not in sbx`).MatchString(frame) {
 		t.Errorf("the cursor does not open on %s, the top row:\n%s", slots[0].Label, frame)
 	}
 }
 
-// A sign-in sbx cannot run from init (cursor's) reads not signed in on its row, with how to sign in
+// A sign-in sbx cannot run from init (cursor's) reads not in sbx on its row, with how to sign in
 // under it, never signed in.
-func TestASignInInitCannotRunReadsNotSignedIn(t *testing.T) {
+func TestASignInInitCannotRunReadsNotInSbx(t *testing.T) {
 	slots := []credSlot{{Label: "cursor", Kind: kindSignIn, Store: "cursor"}}
 	rows := []choiceui.Row{{Label: "cursor", Options: []string{notSignedIn, signInNow}, Selected: 1}}
 	did, items, err := applyCredentials(streamView{}, slots, rows, func(credSlot, []string) error {
@@ -613,7 +613,7 @@ func TestASignInInitCannotRunReadsNotSignedIn(t *testing.T) {
 		t.Fatalf("applyCredentials = %v, items %+v", err, items)
 	}
 	if d := did[slotKey(slots[0])]; d.mark != choiceui.MarkNeeds || d.outcome != notSignedIn || len(d.detail) != 1 || !strings.HasPrefix(d.detail[0], "sign in with ") {
-		t.Errorf("the row reads %+v, want ! not signed in with how to sign in under it", d)
+		t.Errorf("the row reads %+v, want ! not in sbx with how to sign in under it", d)
 	}
 	if d := heldDone(slots, did); d.mark != choiceui.MarkDone || d.outcome != "0 held · 1 not held" {
 		t.Errorf("page 3's done row = %+v, want no failure counted for a row that did not fail", d)

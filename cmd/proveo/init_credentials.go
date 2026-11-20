@@ -254,7 +254,7 @@ func credentialRows(slots []credSlot) []choiceui.Row {
 // The choices a sign-in row offers; the first of each pair changes nothing.
 const (
 	signedIn    = "signed in"
-	notSignedIn = "not signed in"
+	notSignedIn = "not in sbx"
 	signInAgain = "sign in again"
 	signInNow   = "sign in"
 	signOut     = "sign out"
@@ -304,7 +304,7 @@ func applySignIn(view walkView, s credSlot, choice string, run func(argv []strin
 		return nil, nil
 	}
 	if sbx.SignInArgs(s.Store, "<dir>") == nil {
-		return []sandbox.Item{{Warn: true, Text: s.Label + " — not signed in", Detail: []string{"sign in with " + sbx.SignIn(s.Store) + "; sbx keeps the login as " + s.Store}}}, nil
+		return []sandbox.Item{{Warn: true, Text: s.Label + " — not in sbx", Detail: []string{"sign in with " + sbx.SignIn(s.Store) + "; sbx keeps the login as " + s.Store}}}, nil
 	}
 	dir := ""
 	if sbx.SignInRuns(sbx.SignInArgs(s.Store, "<dir>")) {
