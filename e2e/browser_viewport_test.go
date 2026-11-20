@@ -63,6 +63,52 @@ func TestIsolatedBrowserViewportAcrossHarnesses(t *testing.T) {
 	}
 }
 
+func TestBrowserRunFallsBackToPublishedImage(t *testing.T) {
+	requireSbx(t)
+	requireTmux(t)
+	requireDocker(t)
+	docker, err := exec.LookPath("docker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proveoBin := buildProveo(t)
+	bin, home, work := t.TempDir(), t.TempDir(), t.TempDir()
+	pulled := filepath.Join(bin, "pulled")
+	const dockerShim = `#!/bin/sh
+case "$*" in
+  'image inspect proveo/claudecode-browser:local') exit 0 ;;
+  'image inspect proveo/claudecode-browser:latest') test -f "$BROWSER_TEST_PULL" || exit 1 ;;
+  'image inspect --format {{.Created}} proveo/claudecode-browser:local') printf '%s\n' '2099-01-01T00:00:00Z'; exit 0 ;;
+  'image inspect --format {{.Id}} proveo/claudecode-browser:local') printf '%s\n' 'stale-browser-image'; exit 0 ;;
+  'run '*' stale-browser-image browser check') printf '%s\n' 'browser launcher missing'; exit 1 ;;
+  'pull proveo/claudecode-browser:latest')
+    "$BROWSER_TEST_DOCKER" "$@" && touch "$BROWSER_TEST_PULL"
+    exit $? ;;
+esac
+exec "$BROWSER_TEST_DOCKER" "$@"
+`
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(dockerShim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{
+		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"BROWSER_TEST_DOCKER=" + docker, "BROWSER_TEST_PULL=" + pulled,
+		"PROVEO_HOME=" + home, "PROVEO_AGENT_UPDATE=off", "PROVEO_AUTO_PROVISION=off",
+	}
+	k := launchKit(t, proveoBin, "claudecode", work, env, "--addon", "browser")
+	if _, err := os.Stat(pulled); err != nil {
+		t.Fatalf("the run did not pull the published image: %v", err)
+	}
+	log := readIn(filepath.Join(home, "logs"), "latest.log")
+	if !strings.Contains(log, "browser launcher missing") {
+		t.Fatalf("the run never rejected the stale local image\n%s", log)
+	}
+	awaitBrowserViewport(t, home)
+	if _, ok := k.end(); !ok {
+		t.Fatal("run did not exit")
+	}
+}
+
 func TestNamedBrowserProfileResumesAndRejectsConcurrentUse(t *testing.T) {
 	requireHarness(t, "claudecode-browser")
 	proveoBin := buildProveo(t)

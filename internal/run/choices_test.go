@@ -1,9 +1,11 @@
 package run
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/choiceui"
@@ -229,6 +231,42 @@ func TestBrowserRowNamesAndSelections(t *testing.T) {
 			t.Errorf("profile name condition = %+v, want browser = named", got)
 		}
 	}
+}
+
+func TestBrowserChoicesAlignWithTheRunGrid(t *testing.T) {
+	for _, c := range runFormCases(t) {
+		if c.man.Name != "claudecode" {
+			continue
+		}
+		for _, width := range []int{81, 120} {
+			t.Run(fmt.Sprint(width), func(t *testing.T) {
+				frame := c.form.RenderOn(rowBrowser, width, 80)
+				column := func(label, value string) int {
+					t.Helper()
+					for line := range strings.SplitSeq(frame, "\n") {
+						if strings.Contains(line, label) {
+							if at := strings.Index(line, value); at >= 0 {
+								return utf8.RuneCountInString(line[:at])
+							}
+						}
+					}
+					t.Fatalf("missing %q on %q:\n%s", value, label, frame)
+					return 0
+				}
+				for _, cells := range [][2]string{{"off", "filtered"}, {"isolated", "verbose"}, {"named", "cloud"}} {
+					row := evidenceLabel
+					if cells[1] == "cloud" {
+						row = rowExecution
+					}
+					if got, want := column(rowBrowser, cells[0]), column(row, cells[1]); got != want {
+						t.Errorf("%s at column %d, want column %d with %s:\n%s", cells[0], got, want, cells[1], frame)
+					}
+				}
+			})
+		}
+		return
+	}
+	t.Fatal("missing claudecode form")
 }
 
 func TestIsolatedBrowserKeepsTheSelectedImageAndVariant(t *testing.T) {

@@ -821,7 +821,7 @@ func (p *Params) browserRows(man manifest.Manifest) []choiceui.Row {
 			answer = browserHost
 		}
 	}
-	row := axisRow(rowBrowser, opts, nil, answer)
+	row := pinSequence(axisRow(rowBrowser, opts, nil, answer))
 	row.Help = map[string]string{
 		browserOff:   "leave this run's browser integration off",
 		browserFresh: "open Chromium in the sandbox and discard its profile after the run",

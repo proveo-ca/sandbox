@@ -26,6 +26,7 @@ import (
 type imageDep struct {
 	Name   string
 	Target string // imagebuild target that can build Name; "" means pull-only
+	Check  func(string) error
 }
 
 type provisioner struct {
@@ -55,16 +56,23 @@ func (pv provisioner) Ensure(deps []imageDep) (map[string]string, error) {
 			continue
 		}
 		seen[d.Name] = true
+		var cachedErr error
 		if pv.Present(d.Name) {
-			continue
+			cachedErr = d.check(d.Name)
+			if cachedErr == nil {
+				continue
+			}
 		}
 		pv.UI.Cloudf("pulling image: %s", d.Name)
 		pullErr := pv.Pull(d.Name)
 		if pullErr == nil {
+			if err := d.check(d.Name); err != nil {
+				return built, err
+			}
 			continue
 		}
 		if d.Target == "" {
-			return built, fmt.Errorf("image unavailable: %s (pull failed: %w)", d.Name, pullErr)
+			return built, errors.Join(cachedErr, fmt.Errorf("image unavailable: %s (pull failed: %w)", d.Name, pullErr))
 		}
 		tag := buildTag(d.Name)
 		pv.UI.Warnf("pull failed for %s — it can be built locally instead", d.Name)
@@ -76,9 +84,19 @@ func (pv provisioner) Ensure(deps []imageDep) (map[string]string, error) {
 		if err != nil {
 			return built, fmt.Errorf("build failed for %s: %w", d.Name, err)
 		}
+		if err := d.check(ref); err != nil {
+			return built, err
+		}
 		built[d.Name] = ref
 	}
 	return built, nil
+}
+
+func (d imageDep) check(ref string) error {
+	if d.Check == nil {
+		return nil
+	}
+	return d.Check(ref)
 }
 
 var (
@@ -112,12 +130,12 @@ func ensureDockerUsable() error {
 }
 
 // preflightImages makes the agent image present locally: sbx loads its template from the local store.
-func preflightImages(man manifest.Manifest, agentImage string) (string, error) {
+func preflightImages(man manifest.Manifest, request run.ImageRequest) (string, error) {
 	if err := ensureDockerUsable(); err != nil {
-		return agentImage, err
+		return request.Ref, err
 	}
 	defs := sourceDefsDir()
-	deps := []imageDep{{Name: agentImage, Target: buildTarget(defs, man, agentImage)}}
+	dep := imageDep{Name: request.Ref, Target: buildTarget(defs, man, request.Ref)}
 	pv := provisioner{
 		Present: func(img string) bool {
 			return exec.Command("docker", "image", "inspect", img).Run() == nil
@@ -138,14 +156,75 @@ func preflightImages(man manifest.Manifest, agentImage string) (string, error) {
 		Confirm: provisionConfirm,
 		UI:      ui.Default,
 	}
-	built, err := pv.Ensure(deps)
+	tag := maintain.RefTag(request.Ref)
+	preferLocal := request.Browser && !request.Explicit && (tag == maintain.LocalTag || tag == maintain.PublishTag)
+	var browserCheck func(string) error
+	if request.Browser {
+		browserCheck = newBrowserImageCheck()
+	}
+	if preferLocal {
+		dep.Check = browserCheck
+	}
+	agentImage, err := pv.ensureAgentImage(dep, preferLocal)
 	if err != nil {
-		return agentImage, err
+		return request.Ref, err
 	}
-	if ref, ok := built[agentImage]; ok {
-		agentImage = ref
+	settled := settleAgent(man.Name, agentImage)
+	if browserCheck != nil {
+		if err := browserCheck(settled); err != nil {
+			if preferLocal && settled != agentImage && browserCheck(agentImage) == nil {
+				pv.UI.Warnf("%v. Using %s", err, agentImage)
+				return agentImage, nil
+			}
+			return settled, err
+		}
 	}
-	return settleAgent(man.Name, agentImage), nil
+	return settled, nil
+}
+
+func (pv provisioner) ensureAgentImage(dep imageDep, preferLocal bool) (string, error) {
+	var localErr error
+	if preferLocal {
+		repo := imagebuild.RefRepo(dep.Name)
+		local := repo + ":" + maintain.LocalTag
+		dep.Name = repo + ":" + maintain.PublishTag
+		if pv.Present(local) {
+			localErr = dep.check(local)
+			if localErr == nil {
+				return local, nil
+			}
+			pv.UI.Warnf("%v. Trying %s", localErr, dep.Name)
+		}
+	}
+	built, err := pv.Ensure([]imageDep{dep})
+	if err != nil {
+		return "", errors.Join(localErr, err)
+	}
+	if ref, ok := built[dep.Name]; ok {
+		return ref, nil
+	}
+	return dep.Name, nil
+}
+
+func newBrowserImageCheck() func(string) error {
+	var checkedID string
+	return func(ref string) error {
+		out, err := exec.Command("docker", "image", "inspect", "--format", "{{.Id}}", ref).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("inspect browser image %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
+		}
+		id := strings.TrimSpace(string(out))
+		if id != "" && id == checkedID {
+			return nil
+		}
+		out, err = exec.Command("docker", "run", "--rm", "--pull=never", "--network", "none",
+			"--entrypoint", "/usr/local/bin/proveo-entrypoint", id, "browser", "check").CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s failed the isolated browser check: %w: %s", ref, err, strings.TrimSpace(string(out)))
+		}
+		checkedID = id
+		return nil
+	}
 }
 
 // settleAgent is the image the run launches after the agent-update check.

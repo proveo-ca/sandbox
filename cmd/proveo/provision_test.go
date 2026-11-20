@@ -120,6 +120,68 @@ func TestProvisionerEnsure(t *testing.T) {
 	}
 }
 
+func TestBrowserImagePrefersUsableLocalAndFallsBackToPublished(t *testing.T) {
+	t.Parallel()
+	const local, latest = "proveo/claudecode-browser:local", "proveo/claudecode-browser:latest"
+	incompatible := errors.New("browser launcher missing")
+	for _, tc := range []struct {
+		name         string
+		ref          string
+		present      map[string]bool
+		badLocal     bool
+		badCached    bool
+		badPublished bool
+		pullErr      error
+		want         string
+		wantCalls    []string
+		wantErr      error
+	}{
+		{name: "usable local even when latest is cached", ref: latest, present: map[string]bool{local: true, latest: true},
+			want: local, wantCalls: []string{"check " + local}},
+		{name: "missing local", ref: local, want: latest,
+			wantCalls: []string{"pull " + latest, "check " + latest}},
+		{name: "stale local", ref: local, present: map[string]bool{local: true}, badLocal: true, want: latest,
+			wantCalls: []string{"check " + local, "pull " + latest, "check " + latest}},
+		{name: "usable cached latest", ref: latest, present: map[string]bool{latest: true}, want: latest,
+			wantCalls: []string{"check " + latest}},
+		{name: "stale cached latest", ref: latest, present: map[string]bool{latest: true}, badCached: true, want: latest,
+			wantCalls: []string{"check " + latest, "pull " + latest, "check " + latest}},
+		{name: "download still lacks browser support", ref: latest, badPublished: true, wantErr: incompatible,
+			wantCalls: []string{"pull " + latest, "check " + latest}},
+		{name: "fallback download failed", ref: local, present: map[string]bool{local: true}, badLocal: true, pullErr: os.ErrNotExist,
+			wantErr: os.ErrNotExist, wantCalls: []string{"check " + local, "pull " + latest}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var calls []string
+			pulled := false
+			pv := provisioner{
+				Present: func(ref string) bool { return tc.present[ref] },
+				Pull: func(ref string) error {
+					calls = append(calls, "pull "+ref)
+					pulled = tc.pullErr == nil
+					return tc.pullErr
+				},
+				UI: &ui.Printer{W: &strings.Builder{}, Plain: true},
+			}
+			dep := imageDep{Name: tc.ref, Check: func(ref string) error {
+				calls = append(calls, "check "+ref)
+				if ref == local && tc.badLocal || ref == latest && (tc.badPublished || tc.badCached && !pulled) {
+					return incompatible
+				}
+				return nil
+			}}
+			got, err := pv.ensureAgentImage(dep, true)
+			if got != tc.want || !errors.Is(err, tc.wantErr) {
+				t.Errorf("ensureAgentImage = %q, %v, want %q, %v", got, err, tc.want, tc.wantErr)
+			}
+			if diff := cmp.Diff(tc.wantCalls, calls); diff != "" {
+				t.Errorf("Docker calls mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestBuildTargetResolution(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -42,8 +41,14 @@ type Deps struct {
 	PromptEnv        func(target string, missing []manifest.EnvVar) map[string]string
 	GitHubTokenEnv   func() (envVar string, items []sandbox.Item) // stages the host's GitHub token; items say what degraded
 	ProvisionConfirm func(question string) bool
-	PreflightImages  func(man manifest.Manifest, agentImage string) (string, error)
+	PreflightImages  func(man manifest.Manifest, image ImageRequest) (string, error)
 	EnsureDesktop    func() (launch []string, installed bool, err error) // installs Hermes Desktop when missing; installed is this run's install
+}
+
+type ImageRequest struct {
+	Ref      string
+	Browser  bool
+	Explicit bool
 }
 
 func Do(p Params, d Deps) (err error) {
@@ -177,18 +182,16 @@ func logFact(path string, printOnly bool) ui.Fact {
 // preflightImage makes the agent image local and reads the agent version it pins.
 func preflightImage(rs *Spec, p *Params, d Deps) error {
 	if !p.PrintOnly && d.PreflightImages != nil {
-		image, err := d.PreflightImages(rs.Man, p.Image)
+		image, err := d.PreflightImages(rs.Man, ImageRequest{
+			Ref: p.Image, Browser: hasAddon(p.Addons, addonBrowser), Explicit: p.ImageSet,
+		})
 		if err != nil {
 			return err
 		}
 		p.Image = image
 	}
-	if !p.PrintOnly && d.PreflightImages != nil && hasAddon(p.Addons, addonBrowser) {
-		cmd := exec.Command("docker", "run", "--rm", "--network", "none",
-			"--entrypoint", "/usr/local/bin/proveo-entrypoint", p.Image, "browser", "check")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("%s does not provide the isolated browser launcher and Chromium. Rebuild the browser-capable image: %s", p.Image, strings.TrimSpace(string(out)))
-		}
+	if p.isolatedImage(rs.Man) != "" {
+		ui.Logf("variant: browser → %s", posture.Image(p.Image))
 	}
 	if v := posture.AgentVersion(p.Image); v != "" {
 		rs.Backend.AgentVersion = v
@@ -478,12 +481,10 @@ func promptChoices(rs *Spec, p *Params, d Deps, visit *formVisit) error {
 		}
 	}
 	if image := p.isolatedImage(rs.Man); image != "" {
-		var isLocal bool
-		p.Image, isLocal = posture.ResolveImageChoice(image)
-		if isLocal {
-			ui.Logf("image: %s (local build — newer than the published tag)", p.Image)
+		p.Image = image
+		if p.PrintOnly {
+			p.Image, _ = posture.ResolveImageChoice(image)
 		}
-		ui.Logf("variant: browser → %s", posture.Image(p.Image))
 	}
 	return nil
 }
