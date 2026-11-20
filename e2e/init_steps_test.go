@@ -300,7 +300,7 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 			t.Errorf("the credentials page lacks %q:\n%s", want, screen)
 		}
 	}
-	if !regexp.MustCompile(`› claudecode\s+\(•\) not signed in`).MatchString(screen) {
+	if !regexp.MustCompile(`› claudecode\s+\(•\) not in sbx`).MatchString(screen) {
 		t.Errorf("the cursor does not open on the top row:\n%s", screen)
 	}
 
@@ -361,7 +361,7 @@ func TestInitSignInRowsRunSbxsOwnFlows(t *testing.T) {
 	r.next(t, 1)
 	r.next(t, 2)
 	r.keys(t, "Right", "Down", "Right", "Right")
-	r.waitMatch(t, `claudecode\s+\( \) not signed in\s+\(•\) sign in`, `codex\s+\( \) signed in\s+\( \) sign in again\s+\(•\) sign out`)
+	r.waitMatch(t, `claudecode\s+\( \) not in sbx\s+\(•\) sign in`, `codex\s+\( \) signed in\s+\( \) sign in again\s+\(•\) sign out`)
 	if line := keyLine(r.page(t, 3)); !strings.Contains(line, "enter run 2 steps") {
 		t.Errorf("the key line does not count the two rows Enter runs: %q", line)
 	}
@@ -396,7 +396,7 @@ func TestInitSignInRowsRunSbxsOwnFlows(t *testing.T) {
 	}
 	r.back(t)
 	r.page(t, 3)
-	r.waitMatch(t, `claudecode\s+\(•\) signed in`, `codex\s+\(•\) not signed in`)
+	r.waitMatch(t, `claudecode\s+\(•\) signed in`, `codex\s+\(•\) not in sbx`)
 	r.skip(t)
 	r.page(t, 4)
 	r.finish(t)
