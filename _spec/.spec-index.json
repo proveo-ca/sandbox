@@ -531,6 +531,9 @@
       "spec": "_spec/cmd/proveo/provision-and-targets.puml",
       "covers": [
         "cmd/proveo/provision.go",
+        "cmd/proveo/provision_test.go",
+        "internal/run/run.go",
+        "e2e/browser_viewport_test.go",
         "cmd/proveo/wizard.go",
         "internal/maintain/fleet.go",
         "internal/imagebuild/targets.go"
@@ -1035,6 +1038,8 @@
         "internal/run/credential_inventory.go",
         "internal/run/credential_inventory_test.go",
         "internal/run/run_form_order_test.go",
+        "internal/run/choices_test.go",
+        "e2e/form_tty_test.go",
         "internal/choiceui/credential_lists_test.go",
         "internal/run/model_row.go",
         "internal/choiceui/step_test.go",

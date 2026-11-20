@@ -8,6 +8,8 @@
 ' covers: internal/run/choices.go
 ' covers: internal/run/credential_inventory.go, internal/run/credential_inventory_test.go
 ' covers: internal/run/run_form_order_test.go
+' covers: internal/run/choices_test.go
+' covers: e2e/form_tty_test.go
 ' covers: internal/choiceui/credential_lists_test.go
 ' covers: internal/run/model_row.go
 ' covers: internal/choiceui/step_test.go
@@ -648,9 +650,10 @@
 ' A harness with Desktop offers tui and desktop as radio choices on a session
 ' row. Other harnesses use the terminal session implicitly. The selected
 ' Desktop option enters the add-on list; tui is the default.
-' The browser row offers off, isolated, named, and host according to capability.
-' Isolated uses a disposable sandbox profile. Named reveals the profile-name
-' field. Host selects the existing Chrome add-on.
+' The browser row places off, isolated, named, and host in consecutive shared
+' columns as capabilities permit. Isolated uses a disposable sandbox profile.
+' Named reveals the profile name on the next row in the same grid. Host selects
+' the existing Chrome add-on.
 ' Pinned by TestTheDevicesRowPacksItsOptionsWithoutGaps,
 ' TestTUIAndDesktopAreOneRadioChoice (internal/run) and
 ' TestARadioSetDrawsRadiosBesideCheckboxes (internal/choiceui).
@@ -822,7 +825,8 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
     mcp | ( ) on | (X) off | . | .
     ├── interface ── | . | . | . | .
     devices | [ ] android | [ ] <color:#9a9a9a><s>ios</s></color> | . | .
-    browser | (X) off | ( ) isolated | ( ) named | ( ) host
+    browser | ( ) off | ( ) isolated | (X) named | ( ) host
+    profile name | [work] | . | . | .
     outputs | ( ) filtered | (X) verbose | . | .
   }
   --

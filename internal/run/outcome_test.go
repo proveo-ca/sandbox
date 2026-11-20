@@ -39,7 +39,7 @@ func TestHostChromeIsReadyBeforeImagePreflight(t *testing.T) {
 		ManifestFor: func(string) (manifest.Manifest, error) {
 			return manifest.Manifest{Name: "codex", Capabilities: manifest.Capabilities{HostBrowser: manifest.HostBrowserCDP}}, nil
 		},
-		PreflightImages: func(manifest.Manifest, string) (string, error) {
+		PreflightImages: func(manifest.Manifest, ImageRequest) (string, error) {
 			if !discovered.Load() {
 				t.Error("image preflight ran before the host Chrome readiness check")
 			}

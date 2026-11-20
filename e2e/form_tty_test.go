@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/schedule"
@@ -80,8 +81,27 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 	if !regexp.MustCompile(`\bdevices\b[^\n]*android[^\n]*ios\n[^\n]*\bbrowser\b[^\n]*\boff\b[^\n]*\bisolated\b[^\n]*\bnamed\b[^\n]*\bhost\b`).MatchString(screen) {
 		t.Errorf("expected mobile devices followed by the four browser choices\n%s", tail(screen, 45))
 	}
-	if err := sess.SendKeys("Down"); err != nil {
+	if err := sess.SendKeys("End", "Up", "Right", "Right"); err != nil {
 		t.Fatal(err)
+	}
+	screen, err = sess.WaitFor("profile name", 10*time.Second)
+	if err != nil {
+		t.Fatalf("selecting named did not reveal the Browser profile field: %v\n%s", err, tail(screen, 45))
+	}
+	column := func(row, value string) int {
+		t.Helper()
+		for line := range strings.SplitSeq(screen, "\n") {
+			if strings.Contains(line, row) {
+				if at := strings.Index(line, value); at >= 0 {
+					return utf8.RuneCountInString(line[:at])
+				}
+			}
+		}
+		t.Fatalf("missing %q on %q\n%s", value, row, tail(screen, 45))
+		return 0
+	}
+	if got, want := column("browser", "isolated"), column("devices", "ios"); got != want {
+		t.Errorf("isolated at column %d, want column %d with ios\n%s", got, want, tail(screen, 45))
 	}
 	if err := sess.SendKeys("Escape"); err != nil {
 		t.Fatal(err)
