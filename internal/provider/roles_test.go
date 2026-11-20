@@ -106,3 +106,17 @@ func TestCursorModelsCarryNoBillingVerdict(t *testing.T) {
 		t.Error("anthropic's key is metered and its token is the plan — the credential decides")
 	}
 }
+
+func TestModelKeyNamesResolvesThePinnedProvider(t *testing.T) {
+	t.Parallel()
+	p, vars := ModelKeyNames("opencode-go/glm-5")
+	if p != "opencode" || len(vars) != 1 || vars[0] != "OPENCODE_API_KEY" {
+		t.Errorf("ModelKeyNames(opencode-go/glm-5) = (%q, %v); want (opencode, [OPENCODE_API_KEY])", p, vars)
+	}
+	if p, _ := ModelKeyNames("OllamaTag"); p != "" {
+		t.Errorf("a tag with no provider resolved to %q; want none", p)
+	}
+	if p, vars := ModelKeyNames("nobody/x"); p != "" && vars != nil {
+		t.Errorf("an unknown provider resolved to (%q, %v); want none", p, vars)
+	}
+}

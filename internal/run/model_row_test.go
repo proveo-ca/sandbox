@@ -359,3 +359,20 @@ func TestApplyRemoteModelRoutesByHarness(t *testing.T) {
 		t.Errorf("no --model must touch nothing: %v (%v)", p.Extra, err)
 	}
 }
+
+func TestModelPinKeysNamesTheProviderKey(t *testing.T) {
+	t.Parallel()
+	msgs := modelPinKeys(&Params{Target: "opencode", Model: "opencode-go/glm-5"}, nil)
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "needs OPENCODE_API_KEY (opencode), which is not set") {
+		t.Errorf("pin keys = %v; want the OPENCODE_API_KEY ask", msgs)
+	}
+	if msgs := modelPinKeys(&Params{Target: "opencode", Model: "opencode-go/glm-5"}, []string{"opencode"}); len(msgs) != 0 {
+		t.Errorf("a detected provider must stay silent: %v", msgs)
+	}
+	if msgs := modelPinKeys(&Params{Target: "opencode"}, nil); len(msgs) != 0 {
+		t.Errorf("no pin must stay silent: %v", msgs)
+	}
+	if msgs := modelPinKeys(&Params{Target: "opencode", Model: "weird/unknown"}, nil); len(msgs) != 0 {
+		t.Errorf("an unknown provider must stay silent: %v", msgs)
+	}
+}

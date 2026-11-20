@@ -406,6 +406,14 @@ skinparam noteTextAlignment left
 '                  on a host with no sbx CLI: the whole YAML-driven chain —
 '                  session, sandbox plan, agent launch line, typed goal.
 '                  A live run still refuses without the backend.
+'   pin key ask   a pinned --model joins the credentials block through the same
+'                  resolution roles use (provider registry → AuthVars): an
+'                  opencode-go/* pin with no opencode credential detected
+'                  prints "--model … needs OPENCODE_API_KEY (opencode), which
+'                  is not set — `sbx secret set OPENCODE_API_KEY` stages it",
+'                  in live and print modes both; a detected provider stays
+'                  silent. NOT CHOSEN: a blocking input prompt — the roles
+'                  idiom names the key, the operator stages it.
 ' NOT CHOSEN: routing --model through each harness's env (CODEX_MODEL,
 ' OPENCODE_MODEL) — the argv passthrough is one seam, printed by DESCRIBE,
 ' instead of per-harness env plumbing the print path cannot show.

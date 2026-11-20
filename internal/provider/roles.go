@@ -55,6 +55,15 @@ func (r Roles) MissingKeys(detected []string) []string {
 	return out
 }
 
+// ModelKeyNames resolves a pinned model id to the provider and env vars its key takes.
+func ModelKeyNames(model string) (string, []string) {
+	p := ModelProvider(normalizeIntent(model))
+	if p == "" {
+		return "", nil
+	}
+	return p, AuthVars(p)
+}
+
 // WithheldKeys names each role pointing at a provider this run's auth answer
 // keeps off the wire.
 func (r Roles) WithheldKeys(withheld []string, answer string) []string {
