@@ -66,7 +66,11 @@ func (j Job) RunArgv(proveo string) []string {
 	}
 	argv := []string{proveo, "run", j.Target, "--yes"}
 	if j.Model != "" {
-		argv = append(argv, "--local-model", j.Model)
+		if strings.Contains(j.Model, "/") {
+			argv = append(argv, "--model", j.Model)
+		} else {
+			argv = append(argv, "--local-model", j.Model)
+		}
 	}
 	for _, a := range j.Addons {
 		argv = append(argv, "--addon", a)

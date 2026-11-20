@@ -86,6 +86,9 @@ func Do(p Params, d Deps) (err error) {
 	if !acceptsLocalModel(p.Target) && p.LocalModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
 	}
+	if err := applyRemoteModel(&p); err != nil {
+		return err
+	}
 
 	if err := detectWorkspace(&rs, &p); err != nil {
 		return err

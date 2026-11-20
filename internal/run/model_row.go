@@ -134,6 +134,28 @@ var noLocalModel = map[string]bool{"cursor": true}
 // acceptsLocalModel reports whether target can run on --local-model.
 func acceptsLocalModel(target string) bool { return !noLocalModel[target] }
 
+// modelFlags maps a harness to the native flag its agent takes for a remote provider/model.
+var modelFlags = map[string]string{"opencode": "-m", "codex": "--model", "claudecode": "--model"}
+
+// acceptsRemoteModel reports the passthrough flag a remote model spec takes on target.
+func acceptsRemoteModel(target string) (string, bool) {
+	flag, ok := modelFlags[target]
+	return flag, ok
+}
+
+// applyRemoteModel routes --model onto the harness's native flag through the agent passthrough.
+func applyRemoteModel(p *Params) error {
+	if p.Model == "" {
+		return nil
+	}
+	flag, ok := acceptsRemoteModel(p.Target)
+	if !ok {
+		return fmt.Errorf("%s has no --model path (inference is vendor-pinned or not wired); unset it or use another harness", p.Target)
+	}
+	p.Extra = append(p.Extra, flag, p.Model)
+	return nil
+}
+
 // modelColumn maps options to the shared grid.
 func modelColumn(opt string, tier int) int {
 	switch opt {

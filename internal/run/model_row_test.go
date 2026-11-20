@@ -334,3 +334,28 @@ func TestApplySourceSetsLocalModelAndAuthTogether(t *testing.T) {
 		t.Errorf("an untouched preselection must keep the flag's tag, got %q", keep.LocalModel)
 	}
 }
+
+func TestApplyRemoteModelRoutesByHarness(t *testing.T) {
+	t.Parallel()
+	p := Params{Target: "opencode", Model: "opencode-go/glm-5.3"}
+	if err := applyRemoteModel(&p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Extra) != 2 || p.Extra[0] != "-m" || p.Extra[1] != "opencode-go/glm-5.3" {
+		t.Errorf("opencode extra = %v; want [-m opencode-go/glm-5.3]", p.Extra)
+	}
+	p = Params{Target: "codex", Model: "gpt-x"}
+	if err := applyRemoteModel(&p); err != nil || p.Extra[0] != "--model" {
+		t.Errorf("codex route = %v (%v); want --model", p.Extra, err)
+	}
+	if err := applyRemoteModel(&Params{Target: "cursor", Model: "any/model"}); err == nil {
+		t.Error("cursor must refuse --model (vendor-pinned)")
+	}
+	if err := applyRemoteModel(&Params{Target: "hermes"}); err != nil {
+		t.Errorf("no --model set: %v", err)
+	}
+	p = Params{Target: "opencode"}
+	if err := applyRemoteModel(&p); err != nil || len(p.Extra) != 0 {
+		t.Errorf("no --model must touch nothing: %v (%v)", p.Extra, err)
+	}
+}
