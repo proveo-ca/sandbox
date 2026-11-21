@@ -178,5 +178,6 @@ fi
 
 run_smoke_test "hermes"
 
+proveo_clear_stale_hermes_gateway "${HERMES_HOME:-/opt/data}"
 echo "🚀 Launching hermes"
 proveo_exec_agent hermes -- "$@"

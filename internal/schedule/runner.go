@@ -239,7 +239,7 @@ func failureLines(lines []string) []string {
 			continue
 		}
 		for _, m := range causeMarks {
-			if strings.HasPrefix(lines[i], m) {
+			if strings.HasPrefix(strings.ToLower(lines[i]), m) {
 				return lines[i : i+1]
 			}
 		}

@@ -2506,6 +2506,22 @@ proveo_trust_workspace_mise() {
  ((found == 0)) || _proveo_persist_tool_env
 }
 
+# _proveo_pidns is this boot's pid-namespace inode number.
+_proveo_pidns() { local ns; ns="$(readlink /proc/self/ns/pid 2>/dev/null)"; printf '%s\n' "${ns//[!0-9]/}"; }
+
+# SPEC: _spec/defs/hermes/hermes-persistence.puml (STALE GATEWAY SOCKET)
+proveo_clear_stale_hermes_gateway() {
+ local home="${1:-${HERMES_HOME:-/opt/data}}" pid ns
+ [[ -e "$home/gateway.sock" || -e "$home/gateway.pid" ]] || return 0
+ pid="$(jq -r '.pid // empty' "$home/gateway.pid" 2>/dev/null)"
+ ns="$(jq -r '.pidns // empty' "$home/gateway.pid" 2>/dev/null)"
+ if [[ -n "$pid" && -n "$ns" && "$ns" == "$(_proveo_pidns)" ]] && grep -qa gateway "/proc/$pid/cmdline" 2>/dev/null; then
+  return 0
+ fi
+ rm -f "$home/gateway.sock" "$home/gateway.pid" "$home/gateway.lock"
+ echo "proveo: cleared the hermes gateway socket an earlier sandbox boot left in $home" >&2
+}
+
 # _proveo_has_socat reports whether this image ships the binary sbx's ssh-agent relay runs.
 _proveo_has_socat() { command -v socat >/dev/null 2>&1; }
 

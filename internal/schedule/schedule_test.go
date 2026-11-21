@@ -754,3 +754,15 @@ func TestExitedDetailFallsBackToTheTail(t *testing.T) {
 		t.Errorf("detail = %q, want %q", got, want)
 	}
 }
+
+func TestExitedDetailMatchesACapitalisedError(t *testing.T) {
+	t.Parallel()
+	transcript := filepath.Join(t.TempDir(), "t.log")
+	body := "Launching hermes\nError: Gateway inaccessible: unsafe_control_peer\n  error: agent exited with code 2\n● project:   /w\n"
+	if err := os.WriteFile(transcript, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := exitedDetail(transcript, "before it was ready"), "the agent exited before it was ready: Error: Gateway inaccessible: unsafe_control_peer"; got != want {
+		t.Errorf("detail = %q, want %q", got, want)
+	}
+}

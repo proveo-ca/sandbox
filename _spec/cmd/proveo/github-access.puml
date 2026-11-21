@@ -95,8 +95,8 @@ title GitHub access — host selection, sandbox verification
 '   internal/imagetest TestEveryHarnessImageShipsTheSSHAgentRelay checks every
 '   manifest target. The refusal now names the cause: no SSH_AUTH_SOCK,
 '   a missing socket in an image without socat, or a relay that did not start.
-'   Upstream draft (unposted): ssh-agent@1 should fail conformance, or warn,
-'   when the image lacks socat. Related: docker/sbx-releases#903, #835.
+'   Not filed upstream (owner, 2026-11-21: "ignore sbx upstream draft").
+'   Related: docker/sbx-releases#903, #835.
 ' An instruction-wait timeout also refuses SSH-mode launch before seed release.
 ' Where origin has a standard GitHub SSH push URL, ls-remote checks read access
 ' at that destination. It never claims branch write permission or test-pushes.

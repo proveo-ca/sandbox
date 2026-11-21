@@ -2261,7 +2261,8 @@
         "internal/imagetest/hermes_test.go",
         "defs/hermes/harness.manifest",
         "internal/manifest/manifest.go",
-        "internal/contract/config_set_test.go"
+        "internal/contract/config_set_test.go",
+        "internal/contract/hermes_stale_gateway_test.go"
       ],
       "fingerprint": null
     },

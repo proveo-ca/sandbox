@@ -171,7 +171,8 @@ skinparam noteTextAlignment left
 '   3 lines were the IDE block proveo prints after every kept sandbox
 '   ("● vs code: … | ● project: … | IDE saves write …"). Five muse-lineup
 '   failures showed that text while the cause, a seed refusal, sat 25 lines up.
-'   failureLines scans back for the last line opening with "×", "error:" or
+'   failureLines scans back for the last line opening with "×", "error:" (any case,
+'   so hermes's "Error: Gateway inaccessible: …" counts) or
 '   "proveo: the seed did not release the agent". It skips "error: agent exited
 '   with code N", which repeats the code. With no cause line it keeps the last 3.
 '   Pinned by internal/schedule/schedule_test.go

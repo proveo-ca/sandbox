@@ -9,6 +9,7 @@ skinparam noteTextAlignment left
 ' covers: defs/hermes/harness.manifest (home.mounts)
 ' covers: internal/manifest/manifest.go (home.mounts validation)
 ' covers: internal/contract/config_set_test.go (TestHermesDataIsBoundNotCopiedIntoTheAgentHome)
+' covers: internal/contract/hermes_stale_gateway_test.go
 '   the sandbox lifecycle that removes volumes ... _spec/internal/sbx/kit-lifecycle.puml
 '
 ' ── EVERY SESSION (2026-10-30) ─────────────────────────────────────────────
@@ -91,6 +92,24 @@ note right of D
   sessions, skills and the vault
   outlive every run.
 end note
+' ── STALE GATEWAY SOCKET (2026-11-20, measured, sbx v0.54.0, hermes v0.23.3) ─
+' The hermes CLI auto-starts a gateway that binds $HERMES_HOME/gateway.sock.
+' That path is on the durable host bind. A sandbox that stops under the gateway leaves
+' gateway.sock, gateway.pid (with its pidns) and gateway_state.json "running".
+' On the next boot nothing listens, and a host connect is refused. Inside the guest,
+' though, connect() on that virtiofs socket SUCCEEDS with SO_PEERCRED pid=0 uid=0,
+' a peer outside the guest's pid namespace. As uid 1000 (hermes), the file looks owned by 1000, so
+' hermes's path checks pass and its peer check raises unsafe_control_peer:
+'   "Error: Gateway inaccessible: unsafe_control_peer", exit 2, before the agent is ready.
+' Seen on every re-attached run after a pass that ran fine on a fresh sandbox
+' (muse-lineup-refine 22:59/23:13/23:14, muse-odds 23:12).
+' Fix: proveo_clear_stale_hermes_gateway, run by entrypoint.sh just before
+' launch, keeps the files only when gateway.pid names a live "gateway" process
+' in this boot's pid namespace. Otherwise it removes gateway.sock, .pid and .lock,
+' and the CLI auto-starts a fresh gateway (verified on the 23:21 refine retry).
+' Residual: two sandboxes sharing one HERMES_HOME at once would still meet
+' this peer check on each other's socket. Keep hermes jobs sequential.
+'
 ' ── WRITE SAFE ROOT (2026-09-28) ───────────────────────────────────────────
 ' The upstream image sets ENV HERMES_WRITE_SAFE_ROOT=/opt/data, and
 ' agent/file_safety.py denies write_file/patch outside it (os.pathsep list).
