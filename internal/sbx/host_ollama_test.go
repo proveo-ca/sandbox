@@ -292,3 +292,24 @@ func TestAResidentModelFitsEveryCheck(t *testing.T) {
 		t.Errorf("FittingHostModels = %v, want only the resident tag with 10 GiB free", got)
 	}
 }
+
+func TestHostOllamaVersionReadsTheServerOrNothing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/version" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"version":"0.40.17-rc4"}`))
+	}))
+	t.Cleanup(srv.Close)
+	orig := hostOllamaURL
+	t.Cleanup(func() { hostOllamaURL = orig })
+	hostOllamaURL = srv.URL
+	if got := HostOllamaVersion(); got != "0.40.17-rc4" {
+		t.Errorf("version = %q, want the server's 0.40.17-rc4", got)
+	}
+	hostOllamaURL = "http://127.0.0.1:1"
+	if got := HostOllamaVersion(); got != "" {
+		t.Errorf("no Ollama must read as no version, got %q", got)
+	}
+}

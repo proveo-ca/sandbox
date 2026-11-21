@@ -65,7 +65,7 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 			group = "local (96 GB unified)"
 		}
 	case capacity >= 24<<30:
-		models, group = "[^\n]*Glimmer[^\n]*Qwen 3.8", "local (needs 24 GB VRAM)"
+		models, group = "[^\n]*(Inkling|Glimmer)[^\n]*Qwen 3.8", "local (needs 24 GB VRAM)"
 		if runtime.GOOS == "darwin" {
 			group = "local (24 GB unified)"
 		}

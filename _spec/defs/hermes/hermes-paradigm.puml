@@ -146,6 +146,9 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' `proveo run hermes` draws a single-select model row, riskier to safer:
 ' Qwen 3.8, API keys (default), Glimmer, in columns 1, 2 and 4.
 ' 27B and 30B live in the hint; Glimmer's hint still says Muse Glimmer.
+' Inkling 2 Mini replaces Glimmer where the host's Ollama serves it (2026-11-20):
+' Apple silicon on Ollama ≥ 0.40.17. Glimmer stays the fallback for older Ollama
+' and for Linux (OLLAMA FLOOR in _spec/internal/sbx/host-inference.puml).
 ' GGUF and MLX live in the hint. Each local option IS a --local-model value for this
 ' host (MLX tags on macOS arm64, GGUF :latest elsewhere; API keys = none), so the
 ' row and the flag are one knob. On sbx the host's Ollama serves it on the host GPU
@@ -229,8 +232,8 @@ end note
 
 note bottom of OLLAMA
   **TestHermesLocalModelE2E never pulls a
-  model.** Muse Glimmer and Qwen 3.8 both ship at
-  17-18GB minimum, no small distilled variant — it
+  model.** Inkling 2 Mini, Muse Glimmer and Qwen 3.8
+  ship at 17-20GB minimum, no small distilled variant — it
   assumes an operator-populated host Ollama and
   skips otherwise, same convention as opencode's
   TestPromptfulE2E.

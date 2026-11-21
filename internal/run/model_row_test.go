@@ -14,9 +14,36 @@ import (
 )
 
 var (
-	qwen    = localModels[0]
-	glimmer = localModels[1]
+	qwen    = preset("qwen3.8")
+	inkling = preset("inkling-2-mini")
+	glimmer = preset("muse-glimmer")
 )
+
+func names(ms []localModel) []string {
+	out := make([]string, len(ms))
+	for i, m := range ms {
+		out[i] = m.name
+	}
+	return out
+}
+
+func preset(repo string) localModel {
+	for _, m := range localModels {
+		if m.repo == repo {
+			return m
+		}
+	}
+	panic("no preset " + repo)
+}
+
+// stubOllamaHost pins the platform and Ollama version the row reads; never call it from a parallel test.
+func stubOllamaHost(t *testing.T, platform, version string) {
+	t.Helper()
+	origPlatform, origVersion := ollamaPlatform, hostOllamaVersion
+	t.Cleanup(func() { ollamaPlatform, hostOllamaVersion = origPlatform, origVersion })
+	ollamaPlatform = func() string { return platform }
+	hostOllamaVersion = func() string { return version }
+}
 
 func hermesImagesMan() manifest.Manifest {
 	return manifest.Manifest{Name: "hermes", Images: map[string]string{"hermes": "proveo/hermes:latest"}}
@@ -86,6 +113,9 @@ func TestAnExplicitModelCanCrossTheTierBoundary(t *testing.T) {
 		r, _ := modelRow(hermesImagesMan(), c.tag, c.tier)
 		if got := r.Options[r.Selected]; got != c.option {
 			t.Fatalf("tag %q selected %q, want %q", c.tag, got, c.option)
+		}
+		if n := len(r.Options) - 1; n > 2 {
+			t.Errorf("tag %q at tier %d drew %d local models %v, want its column's slot, not a third", c.tag, c.tier, n, r.Options)
 		}
 		p := Params{LocalModel: c.tag}
 		p.applySource(c.option, true)
@@ -200,12 +230,19 @@ func TestLocalModelIsSeededFromTheCache(t *testing.T) {
 
 func TestLocalModelFollowsTheHostPlatform(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct{ platform, qwenTag, build, glimmerTag string }{
-		{"darwin/arm64", "qwen3.8:27b-mlx", "MLX", "muse-glimmer:30b-mlx"},
-		{"linux/amd64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest"},
-		{"darwin/amd64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest"},
-		{"linux/arm64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest"},
+	const inklingGGUF = "hf.co/unsloth/Inkling-2-Mini-GGUF:UD-Q4_K_M"
+	for _, c := range []struct{ platform, qwenTag, build, glimmerTag, inklingTag string }{
+		{"darwin/arm64", "qwen3.8:27b-mlx", "MLX", "muse-glimmer:30b-mlx", "inkling-2-mini:26b-a5b-nvfp4"},
+		{"linux/amd64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest", inklingGGUF},
+		{"darwin/amd64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest", inklingGGUF},
+		{"linux/arm64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest", inklingGGUF},
 	} {
+		if got := inkling.tagFor(c.platform); got != c.inklingTag {
+			t.Errorf("Inkling tag on %s = %q, want %q", c.platform, got, c.inklingTag)
+		}
+		if got := inkling.buildFor(c.platform); got != c.build {
+			t.Errorf("Inkling build on %s = %q, want %q", c.platform, got, c.build)
+		}
 		if got := qwen.tagFor(c.platform); got != c.qwenTag {
 			t.Errorf("Qwen tag on %s = %q, want %q", c.platform, got, c.qwenTag)
 		}
@@ -234,7 +271,7 @@ func TestModelBuildLivesInTheHint(t *testing.T) {
 		t.Fatal("no model row")
 	}
 	for _, opt := range r.Options {
-		if strings.Contains(opt, "GGUF") || strings.Contains(opt, "MLX") || strings.Contains(opt, "27B") || strings.Contains(opt, "30B") {
+		if strings.ContainsAny(opt, "0123456789") && opt != qwen.label() || strings.Contains(opt, "GGUF") || strings.Contains(opt, "MLX") {
 			t.Errorf("build or size leaked into the option %q", opt)
 		}
 		if n := utf8.RuneCountInString(opt); n > 10 {
@@ -379,5 +416,140 @@ func TestModelPinKeysNamesTheProviderKey(t *testing.T) {
 	}
 	if msgs := modelPinKeys(&Params{Target: "opencode", Model: "weird/unknown"}, nil, nil); len(msgs) != 0 {
 		t.Errorf("an unknown provider must stay silent: %v", msgs)
+	}
+}
+
+func TestColumnTwoFollowsTheHostOllama(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		platform, version string
+		want              []string
+	}{
+		{"darwin/arm64", "0.40.17", []string{"Qwen 3.8", "Inkling"}},
+		{"darwin/arm64", "0.40.17-rc4", []string{"Qwen 3.8", "Inkling"}},
+		{"darwin/arm64", "v0.41.0", []string{"Qwen 3.8", "Inkling"}},
+		{"darwin/arm64", "0.40.16", []string{"Qwen 3.8", "Glimmer"}},
+		{"darwin/arm64", "0.0.0", []string{"Qwen 3.8", "Glimmer"}},
+		{"darwin/arm64", "", []string{"Qwen 3.8", "Glimmer"}},
+		{"darwin/arm64", "garbage", []string{"Qwen 3.8", "Glimmer"}},
+		{"linux/amd64", "99.0.0", []string{"Qwen 3.8", "Glimmer"}},
+		{"darwin/amd64", "0.40.17", []string{"Qwen 3.8", "Glimmer"}},
+	} {
+		if got := names(lineupFor(modelTier24, c.platform, c.version)); !slices.Equal(got, c.want) {
+			t.Errorf("Ollama %q on %s offers %v, want %v", c.version, c.platform, got, c.want)
+		}
+	}
+	if got := names(lineupFor(modelTier96, "darwin/arm64", "0.40.17")); !slices.Equal(got, []string{"Nemotron", "Flash Next"}) {
+		t.Errorf("96 GB tier = %v, want Nemotron and Flash Next untouched", got)
+	}
+	for _, platform := range []string{"darwin/arm64", "linux/amd64"} {
+		if got := lineupFor(0, platform, "0.40.17"); len(got) != 0 {
+			t.Errorf("under 24 GB on %s the row offers %v, want no local model", platform, names(got))
+		}
+	}
+}
+
+func TestTheRowOffersInklingWhereTheHostOllamaServesIt(t *testing.T) {
+	stubOllamaHost(t, "darwin/arm64", "0.40.17")
+	r, _ := modelRow(hermesImagesMan(), "", modelTier24)
+	if want := []string{modelAPIKeys, "Inkling", "Qwen 3.8"}; !slices.Equal(r.Options, want) || !slices.Equal(r.Cols, []int{0, 2, 3}) {
+		t.Errorf("options = %v cols = %v, want %v in columns 0, 2, 3", r.Options, r.Cols, want)
+	}
+	if got := localModelFor("Inkling"); got != "inkling-2-mini:26b-a5b-nvfp4" {
+		t.Errorf("Inkling → --local-model %q, want the MLX build", got)
+	}
+	if h := r.Help["Inkling"]; !strings.Contains(h, "Inkling 2 Mini 26B-A5B, MLX") {
+		t.Errorf("hint = %q, want the name, size and build", h)
+	}
+
+	r, _ = modelRow(hermesImagesMan(), "muse-glimmer:30b-mlx", modelTier24)
+	if want := []string{modelAPIKeys, "Glimmer", "Qwen 3.8"}; !slices.Equal(r.Options, want) || !slices.Equal(r.Cols, []int{0, 2, 3}) {
+		t.Errorf("a typed Glimmer: options = %v cols = %v, want %v in columns 0, 2, 3", r.Options, r.Cols, want)
+	}
+	if r.Options[r.Selected] != "Glimmer" {
+		t.Errorf("a typed Glimmer must stay selected, got %q", r.Options[r.Selected])
+	}
+
+	stubOllamaHost(t, "darwin/arm64", "0.40.16")
+	r, _ = modelRow(hermesImagesMan(), "inkling-2-mini:26b-a5b", modelTier24)
+	if want := []string{modelAPIKeys, "Inkling", "Qwen 3.8"}; !slices.Equal(r.Options, want) || r.Options[r.Selected] != "Inkling" {
+		t.Errorf("a typed Inkling on an older Ollama: options = %v selected %q, want %v with Inkling kept", r.Options, r.Options[r.Selected], want)
+	}
+}
+
+func TestARememberedPresetFollowsItsColumnsPick(t *testing.T) {
+	none := func(string) string { return "" }
+	stubOllamaHost(t, "darwin/arm64", "0.40.17")
+	var p Params
+	p.seedFromCache(agentsettings.Choice{LocalModel: "muse-glimmer:30b-mlx"}, none, false)
+	if p.LocalModel != "inkling-2-mini:26b-a5b-nvfp4" {
+		t.Errorf("a remembered Glimmer on Ollama 0.40.17 = %q, want Inkling's build", p.LocalModel)
+	}
+	var legacy Params
+	legacy.seedFromCache(agentsettings.Choice{ModelVariant: "hermes-muse-glimmer"}, none, false)
+	if legacy.LocalModel != "inkling-2-mini:26b-a5b-nvfp4" {
+		t.Errorf("a legacy Glimmer variant on Ollama 0.40.17 = %q, want Inkling's build", legacy.LocalModel)
+	}
+	typed := Params{LocalModel: "muse-glimmer:30b-mlx"}
+	typed.seedFromCache(agentsettings.Choice{LocalModel: "qwen3.8:27b-mlx"}, none, false)
+	if typed.LocalModel != "muse-glimmer:30b-mlx" {
+		t.Errorf("a typed Glimmer must stay Glimmer, got %q", typed.LocalModel)
+	}
+
+	stubOllamaHost(t, "darwin/arm64", "0.40.16")
+	var back Params
+	back.seedFromCache(agentsettings.Choice{LocalModel: "inkling-2-mini:26b-a5b-nvfp4"}, none, false)
+	if back.LocalModel != "muse-glimmer:30b-mlx" {
+		t.Errorf("a remembered Inkling on Ollama 0.40.16 = %q, want Glimmer's build", back.LocalModel)
+	}
+}
+
+func TestTheRowNeverDrawsMoreThanTwoLocalModels(t *testing.T) {
+	tags := []string{"", "gemma4:12b", "hf.co/someone/tiny-GGUF:Q4_K_M"}
+	for _, m := range localModels {
+		tags = append(tags, m.tagFor("darwin/arm64"), m.tagFor("linux/amd64"))
+	}
+	for _, host := range [][2]string{{"darwin/arm64", "0.40.17"}, {"darwin/arm64", "0.40.16"}, {"linux/amd64", ""}} {
+		stubOllamaHost(t, host[0], host[1])
+		for _, tier := range []int{0, modelTier24, modelTier96} {
+			for _, tag := range tags {
+				r, _ := modelRow(hermesImagesMan(), tag, tier)
+				local := slices.DeleteFunc(slices.Clone(r.Options), func(o string) bool { return o == modelAPIKeys })
+				cols := slices.Clone(r.Cols[1:])
+				slices.Sort(cols)
+				if len(local) > 2 || len(slices.Compact(cols)) != len(cols) {
+					t.Errorf("%s Ollama %q tier %d tag %q: options %v cols %v, want at most two local models in distinct columns",
+						host[0], host[1], tier, tag, r.Options, r.Cols)
+				}
+				if tag != "" && r.Options[r.Selected] != modelLabelFor(tag) {
+					t.Errorf("%s tier %d tag %q selected %q, want %q", host[0], tier, tag, r.Options[r.Selected], modelLabelFor(tag))
+				}
+			}
+		}
+	}
+}
+
+func TestAnUnlistedTagReplacesThePair(t *testing.T) {
+	t.Parallel()
+	for _, tier := range []int{modelTier24, modelTier96} {
+		r, _ := modelRow(hermesImagesMan(), "gemma4:12b", tier)
+		if want := []string{modelAPIKeys, "gemma4:12b"}; !slices.Equal(r.Options, want) || !slices.Equal(r.Cols, []int{0, 2}) {
+			t.Errorf("tier %d: options = %v cols = %v, want %v in columns 0, 2", tier, r.Options, r.Cols, want)
+		}
+	}
+}
+
+func TestInklingOwnsItsLibraryAndHuggingFaceBuilds(t *testing.T) {
+	t.Parallel()
+	for _, tag := range []string{"inkling-2-mini", "inkling-2-mini:latest", "inkling-2-mini:26b-a5b-nvfp4",
+		"hf.co/unsloth/Inkling-2-Mini-GGUF:UD-Q4_K_M", "hf.co/unsloth/Inkling-2-Mini-GGUF:UD-IQ4_XS"} {
+		if got := modelLabelFor(tag); got != "Inkling" {
+			t.Errorf("%s maps to %q, want Inkling", tag, got)
+		}
+	}
+	for _, tag := range []string{"inkling-2-small:latest", "hf.co/ggml-org/Inkling-2-Mini-GGUF:IQ4_NL"} {
+		if inkling.owns(tag) {
+			t.Errorf("%s is not a listed Inkling build", tag)
+		}
 	}
 }

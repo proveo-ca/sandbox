@@ -23,15 +23,17 @@ single-process launch every other def here uses.
 `PROVEO_LOCAL_MODEL` wires Hermes at the host's Ollama the same way `opencode`'s `--local-model`
 does (`internal/sbx/host_ollama.go`). `entrypoint.sh` writes hermes's own `config.yaml`
 (`model.provider custom`, `model.base_url <OLLAMA_API_BASE>/v1`, `model.default <tag>`) — hermes
-ignores `OPENAI_BASE_URL`/`HERMES_MODEL` for this. Muse Glimmer and Qwen
-3.8 are both published on the Ollama library. Docker Model Runner is intentionally not wired in —
+ignores `OPENAI_BASE_URL`/`HERMES_MODEL` for this. Inkling 2 Mini, Muse Glimmer and Qwen
+3.8 are published on the Ollama library. Docker Model Runner is intentionally not wired in —
 it runs inference at the host-Docker-Desktop level, bypassing containerization, which doesn't
 compose with this repo's per-sandbox isolated-microVM model.
 
 ## Local models on the model row
 
 The model row picks the source, riskier to safer: Qwen 3.8 27B, API keys (an external provider through your keys), or
-Muse Glimmer 30B. Each local option is a `--local-model` value for this host — "… MLX" on macOS arm64
+Inkling 2 Mini 26B-A5B. Inkling needs Ollama ≥ 0.40.17 on Apple silicon (`inkling-2-mini:26b-a5b-nvfp4`, MLX); an older
+Ollama, and every other host until an Ollama release loads its GGUF, gets Muse Glimmer 30B in that column instead.
+Each local option is a `--local-model` value for this host — "… MLX" on macOS arm64
 (`qwen3.8:27b-mlx`, `muse-glimmer:30b-mlx`, 2.6x the generation speed of GGUF measured on an M4 Pro),
 "… GGUF" elsewhere (`qwen3.8:latest`, `muse-glimmer:latest`). On sbx the model runs on **your host's
 Ollama** and hermes reaches it at `host.docker.internal:11434`. A tag you have not pulled is pulled for you
