@@ -622,7 +622,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) {
 		facts = append(facts, ui.Fact{Role: ui.RoleHost, Key: "withheld", Value: strings.Join(withheld, ", "),
 			Detail: []string{fmt.Sprintf("auth %q keeps them out of sbx's secret store and the agent's environment", p.AuthVar)}})
 	}
-	for _, msg := range slices.Concat(p.Roles.MissingKeys(rs.Creds.Detected), p.Roles.WithheldKeys(withheld, p.AuthVar), p.Roles.BillingClashes(p.AuthVar), modelPinKeys(p, rs.Creds.Detected)) {
+	for _, msg := range slices.Concat(p.Roles.MissingKeys(rs.Creds.Detected), p.Roles.WithheldKeys(withheld, p.AuthVar), p.Roles.BillingClashes(p.AuthVar), modelPinKeys(p, rs.Creds.Detected, withheld)) {
 		items = append(items, sandbox.Item{Warn: true, Text: msg})
 	}
 	items = append(items, unknownModels(rs, p)...)
@@ -636,8 +636,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) {
 // credentialsHeading declares the credentials heading, for sandbox.PrintBlock.
 func credentialsHeading() { ui.Section(ui.SectionCredentials) }
 
-// modelPinKeys names the provider key a pinned --model needs and no credential covers.
-func modelPinKeys(p *Params, detected []string) []string {
+func modelPinKeys(p *Params, detected, withheld []string) []string {
 	if p.Model == "" {
 		return nil
 	}
@@ -645,12 +644,13 @@ func modelPinKeys(p *Params, detected []string) []string {
 	if prov == "" || len(vars) == 0 {
 		return nil
 	}
-	for _, d := range detected {
-		if d == prov {
-			return nil
-		}
-	}
 	want := strings.Join(vars, " or ")
+	if slices.Contains(withheld, prov) {
+		return []string{fmt.Sprintf("--model %s needs %s (%s), which the %q auth answer withholds", p.Model, want, prov, p.AuthVar)}
+	}
+	if slices.Contains(detected, prov) {
+		return nil
+	}
 	return []string{fmt.Sprintf("--model %s needs %s (%s), which is not set — `sbx secret set %s` stages it", p.Model, want, prov, vars[0])}
 }
 

@@ -152,7 +152,11 @@ func applyRemoteModel(p *Params) error {
 	if !ok {
 		return fmt.Errorf("%s has no --model path (inference is vendor-pinned or not wired); unset it or use another harness", p.Target)
 	}
-	p.Extra = append(p.Extra, flag, p.Model)
+	end := slices.Index(p.Extra, "--")
+	if end < 0 {
+		end = len(p.Extra)
+	}
+	p.Extra = slices.Insert(p.Extra, end, flag, p.Model)
 	return nil
 }
 

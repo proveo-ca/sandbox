@@ -679,13 +679,19 @@ func TestDescribeSkipsThePlanForAJobWithItsOwnCommand(t *testing.T) {
 
 func TestRunArgvSplitsRemoteModelsFromLocalTags(t *testing.T) {
 	t.Parallel()
-	remote := (Job{Target: "opencode", Model: "opencode-go/glm-5.3"}).RunArgv("/bin/proveo")
-	if want := []string{"/bin/proveo", "run", "opencode", "--yes", "--model", "opencode-go/glm-5.3"}; !slices.Equal(remote, want) {
-		t.Errorf("remote argv = %v\nwant          %v", remote, want)
-	}
-	local := (Job{Target: "opencode", Model: "qwen3.8:27b"}).RunArgv("/bin/proveo")
-	if want := []string{"/bin/proveo", "run", "opencode", "--yes", "--local-model", "qwen3.8:27b"}; !slices.Equal(local, want) {
-		t.Errorf("local argv = %v\nwant          %v", local, want)
+	for _, tc := range []struct{ target, model, flag string }{
+		{"opencode", "opencode-go/glm-5.3", "--model"},
+		{"opencode", "openrouter/meta-llama/llama-3.3-70b-instruct:free", "--model"},
+		{"opencode", "qwen3.8:27b", "--local-model"},
+		{"hermes", "team/model:tag", "--local-model"},
+		{"hermes", "team/model", "--local-model"},
+		{"hermes", "mistral/model:tag", "--local-model"},
+	} {
+		j := Job{Target: tc.target, Model: tc.model}
+		want := []string{"/bin/proveo", "run", tc.target, "--yes", tc.flag, tc.model}
+		if got := j.RunArgv("/bin/proveo"); !slices.Equal(got, want) {
+			t.Errorf("argv = %v\nwant   %v", got, want)
+		}
 	}
 }
 

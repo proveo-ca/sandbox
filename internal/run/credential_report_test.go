@@ -7,9 +7,33 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
+
+func TestPinnedModelWarnsWhenTheAuthChoiceWithholdsItsKey(t *testing.T) {
+	var out strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&out)
+	t.Cleanup(func() { ui.Default = prev })
+
+	rs := &Spec{
+		Man: manifest.Manifest{Name: "opencode", Env: []manifest.EnvVar{{Name: "OPENCODE_API_KEY", Secret: true}}},
+		Creds: CredentialSpec{Lookup: func(name string) string {
+			if name == "OPENCODE_API_KEY" {
+				return "test-key"
+			}
+			return ""
+		}},
+	}
+	p := &Params{Target: "opencode", Model: "opencode-go/glm-5.3", AuthVar: credentials.AuthUsage, PrintOnly: true}
+	resolveCredentials(rs, p, Deps{})
+	want := `--model opencode-go/glm-5.3 needs OPENCODE_API_KEY (opencode), which the "usage credits" auth answer withholds`
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("credentials lack %q:\n%s", want, out.String())
+	}
+}
 
 func TestASatisfiedSubscriptionCredentialIsNotAlsoReportedMissing(t *testing.T) {
 	man := manifest.Manifest{Name: "claudecode", Subscription: true,

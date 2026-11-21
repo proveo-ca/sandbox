@@ -41,7 +41,7 @@ skinparam noteTextAlignment left
 '          whose newest `at` entry fell within catch_up (20 m) and has not fired:
 '          mark it fired, then Launch
 '   Launch tmux session proveo-sched-<job> running `PROVEO_SCHEDULE=1 proveo run
-'          <target> --yes --local-model … --addon …` (or the job's `command`),
+'          <target> --yes [--model … | --local-model …] --addon …` (or the job's `command`),
 '          pipe-pane to
 '          ~/.proveo/logs/schedule/<job>/<stamp>.log, and a detached (setsid)
 '          `proveo schedule watch`
@@ -389,15 +389,19 @@ skinparam noteTextAlignment left
 ' covers: internal/run/run.go (applyRemoteModel call), internal/run/params.go (Model)
 ' covers: internal/backend/sandbox/sandbox.go (Ready, sbxAvailable, ensureBackend)
 ' covers: internal/backend/sandbox/ready_test.go, internal/run/model_row_test.go
+' covers: internal/run/credential_report_test.go, e2e/schedule_test.go
 ' Executor asked for a dry run on a host with no sbx, and a schedule job that
 ' pins a remote provider model (opencode on the Go membership, GLM 5.3 max).
-'   model split   schedule.yml `model:` containing "/" is a provider/model
-'                  spec: RunArgv appends `--model <spec>`; an Ollama tag
-'                  keeps `--local-model` (unchanged). `proveo run --model`
-'                  routes onto the harness's native passthrough flag via
-'                  Params.Extra (opencode -m · codex/claudecode --model,
-'                  measured from each def's entrypoint and the opencode CLI);
-'                  cursor refuses it — the vendor-pinned --local-model rule.
+'   model split   `model: provider/model` uses `--model` for a registered provider
+'                  or alias. Plain Ollama names, unregistered namespaces and
+'                  one-slash tagged values use `--local-model`. A registered
+'                  provider may carry a nested model id and a suffix, as with
+'                  OpenRouter. To disambiguate a value, omit `model:` and name
+'                  `--model` or `--local-model` in the job's `args:`.
+'   native argv   `proveo run --model` adds opencode `-m` or Codex/Claude Code
+'                  `--model` before the first harness `--`, or at the end
+'                  when there is no delimiter. This preserves native subcommands
+'                  and keeps the pin outside positional prompt text.
 '   print w/o sbx  Ready under --print: an unavailable backend warns and
 '                  proceeds — --print describes a run, it does not host one.
 '                  The kit write and every print block compose in-process
@@ -411,9 +415,10 @@ skinparam noteTextAlignment left
 '                  opencode-go/* pin with no opencode credential detected
 '                  prints "--model … needs OPENCODE_API_KEY (opencode), which
 '                  is not set — `sbx secret set OPENCODE_API_KEY` stages it",
-'                  in live and print modes both; a detected provider stays
-'                  silent. NOT CHOSEN: a blocking input prompt — the roles
-'                  idiom names the key, the operator stages it.
+'                  in live and print modes both. When the auth choice withholds
+'                  every detected credential for the provider, the warning names
+'                  that choice. A detected provider with a surviving credential
+'                  keeps the credentials block quiet about the pin.
 ' NOT CHOSEN: routing --model through each harness's env (CODEX_MODEL,
 ' OPENCODE_MODEL) — the argv passthrough is one seam, printed by DESCRIBE,
 ' instead of per-harness env plumbing the print path cannot show.
