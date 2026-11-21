@@ -156,6 +156,23 @@ func EnsureHostOllama(model string, ctx int, getenv func(string) string, p *ui.P
 	return pulled, checkFit(m, ctx, getenv)
 }
 
+// HostOllamaVersion is the version the host's Ollama reports; "" when none answers.
+func HostOllamaVersion() string {
+	c := http.Client{Timeout: 2 * time.Second}
+	resp, err := c.Get(hostOllamaURL + "/api/version")
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var v struct {
+		Version string `json:"version"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&v) != nil {
+		return ""
+	}
+	return v.Version
+}
+
 // libraryRef splits an Ollama library tag into repo and tag; ok is false for other registries.
 func libraryRef(model string) (repo, tag string, ok bool) {
 	repo, tag = model, "latest"

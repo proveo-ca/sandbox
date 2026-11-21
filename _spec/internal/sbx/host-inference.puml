@@ -2,9 +2,9 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how a local model reaches an sbx agent — the host's Ollama on the host GPU, one port across the VM boundary
-' covers: internal/sbx/host_ollama.go (LocalModelEnv, EnsureHostOllama, HostOllamaPolicyHost)
+' covers: internal/sbx/host_ollama.go (LocalModelEnv, EnsureHostOllama, HostOllamaPolicyHost, HostOllamaVersion)
 ' covers: internal/sbx/host_ollama_test.go
-' covers: internal/sbx/host_memory.go (HostAcceleratorCapacity, memoryFor, amdVRAM)
+' covers: internal/sbx/host_memory.go (HostAcceleratorCapacity, capacityFor, integratedCapacity, apuCapacity, memoryFor, amdVRAM)
 ' covers: internal/sbx/host_memory_test.go
 ' covers: internal/run/local_model_fit.go (admitOversizedModel)
 ' covers: internal/run/local_model_fit_test.go
@@ -12,7 +12,7 @@ skinparam noteTextAlignment left
 ' covers: internal/run/local_model_auto_test.go
 ' covers: internal/choiceui/oversized_model.go (AskOversizedModel)
 ' covers: internal/choiceui/oversized_model_test.go
-' covers: internal/run/model_row.go (localModels, tagFor)
+' covers: internal/run/model_row.go (localModels, tagFor, servedBy, lineupFor)
 ' covers: internal/run/run.go (promptChoices, launchSandbox)
 ' covers: internal/backend/sandbox/sandbox.go (Spec allow, proxyOnlyVar)
 ' covers: internal/backend/sandbox/host_inference_test.go
@@ -197,17 +197,60 @@ skinparam noteTextAlignment left
 ' ── MODEL ROW MAPPING ──────────────────────────────────────────────────────
 '                      darwin/arm64            linux/amd64 (and any other host)
 '   Qwen 3.8 27B     → qwen3.8:27b-mlx         qwen3.8:latest       (27b-q4_K_M)
+'   Inkling 2 Mini   → inkling-2-mini:26b-a5b-nvfp4   hf.co/unsloth/Inkling-2-Mini-GGUF:UD-Q4_K_M (dormant)
 '   Muse Glimmer 30B → muse-glimmer:30b-mlx    muse-glimmer:latest  (30b-q4_K_M)
 '   Nemotron 3.5 Super → nemotron-3.5-super:120b-a12b-q4_K_M on both
 '   Qwen3.8-Flash-Next → qwen3.8-flash-next:125b-mlx on Apple silicon
 '                        qwen3.8-flash-next:125b-a6b-q4_K_M elsewhere
 '
-' The form offers the first pair at 24 ≤ capacity < 96 GiB. At capacity ≥
+' The form offers the first pair (Qwen + Inkling or Glimmer) at 24 ≤ capacity < 96 GiB. At capacity ≥
 ' 96 GiB it offers the second pair. Capacity is installed VRAM, summed
 ' across detected cards, or installed unified memory on Apple silicon.
 ' NVIDIA total rounds to the nearest GiB for driver-reserved memory.
 ' CPU-only and unknown capacity show no presets. An explicit --local-model
-' remains available at every capacity and retains its exact tag.
+' remains available at every capacity and retains its exact tag
+' (2026-11-20, user: "keep current behaviour" for typed and remembered tags below 24 GiB).
+'
+' ── INTEGRATED GPUS COUNT WHERE OLLAMA LOADS ONTO THEM (2026-11-20) ────────
+' user: "make sure M5 is not the only chip with unified memory capabilities,
+' AMD has options, research who else"; then picked GB10/Thor, Jetson Orin,
+' Strix Halo and the OLLAMA_IGPU_ENABLE opt-in. Apple keeps hw.memsize.
+' Rule: count only what Ollama itself loads onto the GPU. Ollama main
+' (afc7c060, 2026-11-20) has two rules for every iGPU:
+'   discover/runner.go filterIntegratedGPUs drops an iGPU unless it is CUDA,
+'   ROCm gfx1151, or OLLAMA_IGPU_ENABLE=1.
+'   server/sched.go availableMemoryForGPU caps an iGPU at the host's free RAM.
+' capacityFor(linux), first match wins:
+'   nvidia-smi total numeric               → that, rounded to the GiB (discrete)
+'   amdgpu card, not an APU                → summed mem_info_vram_total (discrete)
+'   nvidia-smi prints [N/A] (GB10, Thor)   → /proc/meminfo MemTotal
+'   arm64 + /etc/nv_tegra_release (Jetson) → MemTotal
+'   amdgpu APU with KFD gfx_target_version 110501 (Strix Halo), or any APU with
+'     OLLAMA_IGPU_ENABLE=1                 → min(max(vram_total, gtt_total), MemTotal)
+'   vendor 0x8086 with OLLAMA_IGPU_ENABLE=1 → MemTotal [Inference: Vulkan heaps ≈ RAM]
+'   else                                   → 0 (Strix Point, Phoenix, Intel, Snapdragon X)
+' An APU is Ollama's discover/amd.go classification (no board_info, no
+' mem_info_vram_vendor, small VRAM, GTT ≥ 4×VRAM). gfx1151 also counts as an APU at any carve-out.
+' The KFD node is matched to the card via drm_render_minor ↔ device/drm/renderD<n>.
+' The min() keeps the OS's share honest. With a 96 GiB carve-out on 128 GiB, the OS sees
+'   ~31 GiB, and Ollama caps the model there (ollama#16462). Open ollama#19670
+'   would lift that cap; revisit the min() if it merges.
+' memoryFor(linux) reports Pool "unified memory" with Free = MemAvailable for
+'   these hosts, which is Ollama's own iGPU free figure. So the fit question's
+'   consequence reads "pushes the host into swap", not a GPU/CPU split.
+' Apple stays hw.memsize (user: "Keep hw.memsize"). Ollama's real budget is
+'   Metal recommendedMaxWorkingSetSize, measured at 0.78 × hw.memsize on the
+'   M4 Pro 48 GB. The launch fit check measures free unified memory anyway.
+' https://github.com/ollama/ollama/blob/main/discover/runner.go
+' https://github.com/ollama/ollama/blob/main/server/sched.go
+' https://github.com/ollama/ollama/blob/main/discover/amd.go
+' https://github.com/ollama/ollama/pull/16429
+' https://github.com/ollama/ollama/issues/16462
+' https://github.com/ollama/ollama/pull/19670
+' https://docs.nvidia.com/dgx/dgx-spark/known-issues.html
+' https://github.com/mostlygeek/llama-swap/issues/782
+' https://forums.developer.nvidia.com/t/gpu-memory-usage-not-visible-in-nvidia-smi/347122
+' https://rocm.docs.amd.com/en/latest/reference/system-optimization/rdna3-5.html
 ' The cache preserves a large model's custom quantization. The registered
 ' GGUF and MLX presets still map to the current host's build.
 '
@@ -221,6 +264,60 @@ skinparam noteTextAlignment left
 ' https://ollama.com/library/qwen3.8-flash-next/tags
 ' https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
 ' https://huggingface.co/Qwen/Qwen3.8-Flash-Next
+' ── OLLAMA FLOOR: INKLING REPLACES GLIMMER WHERE OLLAMA SERVES IT (2026-11-20) ─
+' user: "Replace current Glimmer with Inkling Mini 26B"; forks answered:
+'   non-Mac → "Inkling everywhere via HF GGUF"; Linux GGUF → "Dormant GGUF, Glimmer now";
+'   quant → unsloth UD-Q4_K_M; old Ollama → "offer Glimmer for older ollama versions";
+'   verification → "upgrade when stable" (e2e waits for a stable 0.40.17).
+' Rule: localModel.floors[platform] is the least host Ollama version
+' ("" any, "unreleased" none yet). lineup(tier) keeps, per (tier, column),
+' the first localModels entry the host's Ollama serves. Inkling precedes
+' Glimmer at localModel.column 2 (grid column 3), so Glimmer is the fallback.
+'   floors: darwin/arm64 → 0.40.17 · every other platform → unreleased
+'   version: GET /api/version once per process (sbx.HostOllamaVersion);
+'            "0.40.17-rc4" counts as 0.40.17; unknown, unparsable or 0.0.0 ⇒ fallback.
+'   Ollama 0.40.17 on darwin/arm64  ⇒ API keys | . | Inkling | Qwen 3.8
+'   Ollama < 0.40.17, none, Linux   ⇒ API keys | . | Glimmer | Qwen 3.8
+' The row draws at most two local models (TWO LOCAL SLOTS in
+' _spec/internal/choiceui/wireframe.puml). A typed preset takes its column's slot.
+' ""--local-model muse-glimmer:30b-mlx"" on Ollama 0.40.17 reads Glimmer | Qwen 3.8.
+' A remembered preset re-resolves to its column's pick (hostTagFor → columnPick),
+' and so does a legacy hermes-muse-glimmer variant.
+' A typed inkling-2-mini tag on an older Ollama keeps Inkling in its slot. The pull then
+' fails with Ollama's own message: the stream's error field carries server/images.go's
+' requires check [Inference: streaming error shape, not observed].
+' Auto-pick (BEST HOST MODEL) asks FittingHostModels for the lineup's tags only.
+' Ollama registry (2026-11-20): latest, 26b-a5b and 26b-a5b-nvfp4 share one config
+'   blob — model_format safetensors, requires "0.40.17", renderer/parser inkling2,
+'   capabilities completion·vision·tools·thinking; 1250 tensor layers = 18.78 GiB.
+'   The tag page labels 26b-a5b-nvfp4 MLX and says "Requires a Mac with 32GB+ memory".
+' Ollama v0.40.17 is a pre-release (rc4, 2026-11-10); v0.40.16 is the latest
+'   stable. The operator's M4 Pro runs 0.40.16, so it shows Glimmer.
+' Linux GGUF is dormant because no Ollama release loads inkling2_loop:
+'   Ollama main and v0.40.17-rc4 pin LLAMA_CPP_VERSION b12257, 343 commits behind
+'   llama.cpp PR #32694 "Inkling 2 Mini" (merge 29b52d39, 2026-11-20 22:01 UTC).
+'   Ollama's own Inkling code is mlxrunner/model/inkling2 (MLX only).
+'   Enabling it means setting the "" floor to the first Ollama release whose
+'   LLAMA_CPP_VERSION contains 29b52d39.
+'   GGUF: ggml-org ships IQ4_NL 16.42 GiB, Q8_0 25.91 GiB, BF16 and no Q4_K_M.
+'   unsloth ships UD-Q4_K_M at 15.47 GiB.
+' Fit: [Inference] /api/show on a safetensors tag carries no attention metadata
+'   (as with the -mlx tags), so the estimate is 18.78 + 18.78/8 + 1 ≈ 22.1 GiB.
+'   A per-layer count lands close: 4 global layers (5, 11, 17, 23) with the
+'   looped core (layers 6–17, 3 passes) give 8 global applications ×
+'   8 KV heads × 256 × 2 B = 32 KiB/token ⇒ 2 GiB at 64K, plus 40 sliding-window
+'   applications × 1024 tokens ≈ 160 MiB [Inference: one KV cache per pass].
+' Model card: 26.4B total, 3.4B active (5.4B effective with the loop), 1M context,
+'   Apache 2.0, released 2026-11-20. Its warning: "less reliable than larger models at
+'   following detailed instructions" when using tools.
+' https://huggingface.co/thinkingmachines/Inkling-2-Mini
+' https://ollama.com/library/inkling-2-mini
+' https://github.com/ollama/ollama/releases/tag/v0.40.17-rc4
+' https://github.com/ollama/ollama/pull/19799
+' https://github.com/ggml-org/llama.cpp/pull/32694
+' https://huggingface.co/unsloth/Inkling-2-Mini-GGUF
+' https://huggingface.co/ggml-org/Inkling-2-Mini-GGUF
+'
 ' The row sets p.LocalModel and nothing else (2026-09-27), so picking an option
 ' and passing the flag are the same run on either backend.
 ' MLX on Apple Silicon, measured 2026-09-27 on an M4 Pro 48 GB, Ollama 0.34.4,

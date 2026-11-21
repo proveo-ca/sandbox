@@ -295,7 +295,7 @@ skinparam noteTextAlignment left
 ' A local model leaves that square as it is and stands beside the host as a table. Each row is two
 ' cells of HostSide (10). The name row centers "" + "" between the host and
 ' Ollama. The OS row keeps that column as a space, so the OS/arch and the
-' selection (Qwen 3.8, Glimmer, or the tag) stay aligned under them. While the
+' selection (Qwen 3.8, Inkling, Glimmer, or the tag) stay aligned under them. While the
 ' cursor is on that local model, Ollama and the selection are bold cyan.
 ' The hostname and the OS/arch stay plain. An OS/arch longer than the cell
 ' shortens the OS word

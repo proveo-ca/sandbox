@@ -23,10 +23,8 @@ func autoLocalModel(rs *Spec, p *Params, getenv func(string) string, capacity fu
 		return ""
 	}
 	var tags []string
-	for _, m := range localModels {
-		if m.tier == tier {
-			tags = append(tags, m.tag())
-		}
+	for _, m := range lineup(tier) {
+		tags = append(tags, m.tag())
 	}
 	fit := fittingHostModels(tags, rs.Man.Capabilities.LocalModel.Context, getenv)
 	if len(fit) == 0 {

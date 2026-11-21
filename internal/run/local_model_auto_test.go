@@ -23,10 +23,10 @@ func stubFitting(t *testing.T, fit ...string) *[]string {
 }
 
 func TestAutoLocalModelPicksTheBestFittingListedModel(t *testing.T) {
-	asked := stubFitting(t, localModels[0].tag(), localModels[1].tag())
+	asked := stubFitting(t, qwen.tag(), glimmer.tag())
 	rs := &Spec{Man: manifest.Manifest{Name: "hermes"}}
-	if got := autoLocalModel(rs, &Params{Target: "hermes"}, func(string) string { return "" }, standardCapacity); got != localModels[0].tag() {
-		t.Errorf("autoLocalModel(no key, no model) = %q, want %q", got, localModels[0].tag())
+	if got := autoLocalModel(rs, &Params{Target: "hermes"}, func(string) string { return "" }, standardCapacity); got != qwen.tag() {
+		t.Errorf("autoLocalModel(no key, no model) = %q, want %q", got, qwen.tag())
 	}
 	if len(*asked) != 2 {
 		t.Errorf("candidates = %v, want the two 24 GB presets", *asked)
@@ -104,5 +104,14 @@ func TestTheAutoLocalModelsReasonReachesOnlyTheRunLog(t *testing.T) {
 		if !strings.Contains(log.String(), want) {
 			t.Errorf("the run log lacks %q:\n%s", want, log.String())
 		}
+	}
+}
+
+func TestAutoLocalModelAsksForTheRowsLineup(t *testing.T) {
+	stubOllamaHost(t, "darwin/arm64", "0.40.17")
+	asked := stubFitting(t)
+	autoLocalModel(&Spec{Man: manifest.Manifest{Name: "hermes"}}, &Params{Target: "hermes"}, func(string) string { return "" }, standardCapacity)
+	if want := []string{"qwen3.8:27b-mlx", "inkling-2-mini:26b-a5b-nvfp4"}; !slices.Equal(*asked, want) {
+		t.Errorf("candidates = %v, want %v", *asked, want)
 	}
 }

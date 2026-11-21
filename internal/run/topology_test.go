@@ -313,8 +313,9 @@ func TestCredentialsStayAtTheBrokerForEveryModel(t *testing.T) {
 	}{
 		{modelAPIKeys, squareOf("hermes"), "", choiceui.KeyAtHop},
 		{credentials.AuthSubscription, squareWith(squareOf("hermes"), "plan"), "", choiceui.KeyAtHop},
-		{localModels[0].label(), squareOf("hermes"), "Qwen 3.8", choiceui.KeyAtHop},
-		{localModels[1].label(), squareOf("hermes"), "Glimmer", choiceui.KeyAtHop},
+		{qwen.label(), squareOf("hermes"), "Qwen 3.8", choiceui.KeyAtHop},
+		{inkling.label(), squareOf("hermes"), "Inkling", choiceui.KeyAtHop},
+		{glimmer.label(), squareOf("hermes"), "Glimmer", choiceui.KeyAtHop},
 	} {
 		fr := topologyOf("hermes", "broker")(modelForm(c.option), 0)
 		if fr.Key != c.key || fr.Square != c.square || fr.HostModel != c.hostModel {

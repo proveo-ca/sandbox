@@ -163,7 +163,7 @@ has_api_key() {
 if [[ "$HERMES_LOCAL_WIRED" != 1 ]] && ! has_api_key; then
   echo "⚠️  No provider API key detected, and no local model."
   echo "   Export a provider key (e.g. OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY),"
-  echo "   or pick Qwen / Muse Glimmer in the model row (--local-model)."
+  echo "   or pick Qwen / Inkling / Glimmer in the model row (--local-model)."
 fi
 
 echo "hermes version: $(command_version_opencode hermes unknown --version)"

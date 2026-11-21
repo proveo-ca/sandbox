@@ -57,7 +57,7 @@ a job with no at: runs only when ` + "`proveo schedule run`" + ` starts it:
   jobs:
     sample-task:                      # the task name: attach, run and retry take it
       target: hermes                  # or command: [argv] instead of proveo run
-      model: muse-glimmer:30b-mlx     # Ollama name/tag or registered provider/model (e.g. opencode-go/glm-5.3)
+      model: inkling-2-mini           # Ollama name/tag or registered provider/model (e.g. opencode-go/glm-5.3)
       addons: [host-chrome]           # optional
       prompt_file: /abs/path/sample-task.md
       mode: goal                      # goal (default) | loop | plain

@@ -997,27 +997,42 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   plus a trailing "" (N)"" count (2026-11-14). ""docker (sandbox)"" paints ""sandbox"".
   Model API keys aligns with credential API keys in column 1.
   Plan aligns with OAuth in column 2. Glimmer and Qwen take columns 3 and 4
-  from 24 GiB up to 96 GiB of installed accelerator memory.
+  from 24 GiB up to 96 GiB of installed accelerator memory. Inkling takes
+  Glimmer's column on a host whose Ollama serves it (2026-11-20). Today that
+  is Apple silicon with Ollama ≥ 0.40.17. Every other host draws Glimmer.
+  The floor table lives in _spec/internal/sbx/host-inference.puml (OLLAMA FLOOR).
   At 96 GiB and above, Nemotron and Flash Next take those columns.
   Below 24 GiB, the local columns hold an explicit model when supplied.
   A rule below the choices labels the occupied cloud and local column spans.
   The rule reads ""local (needs 24 GB VRAM)"" or ""local (96 GB VRAM tier)"".
   Apple silicon names unified memory. Flash Next's hint recommends 128 GB.
   The label shares the model row's scrolling span and takes no cursor stop.
-  An explicit or remembered model outside the capacity tier follows the pair
-  and extends the local rule.
+  TWO LOCAL SLOTS (2026-11-20, user: "NEVER show 3 options, only top Chinese,
+  and top non-Chinese for the 2 memory ranges"). Column 3 holds the top
+  non-Chinese model and column 4 the top Chinese one:
+    24–96 GiB: Inkling (Glimmer below its Ollama floor), then Qwen 3.8.
+    ≥ 96 GiB: Nemotron, then Flash Next.
+  A typed preset takes its own column's slot, even across tiers.
+  ""--local-model qwen3.8:latest"" on a 96 GiB host reads ""Nemotron | Qwen 3.8"".
+  A typed unlisted tag replaces the pair (user: "Replaces the pair"), so
+  ""--local-model gemma4:12b"" reads ""API keys | . | gemma4:12b"".
+  The row never draws three local models.
   The inventory uses API keys, OAuth, SSH and .env in columns 1, 2, 3 and 4.
   The pitch shrinks with the card (2026-11-13): 22 columns from a 120-column
   card down to 16 at 80, where column 4 starts at 66.
   27B and 30B live in the hint. Glimmer's hint still says Muse Glimmer.
+  Inkling's hint says ""Inkling 2 Mini 26B-A5B, MLX"".
   GGUF and MLX are the hint, not the label:
-  darwin/arm64 says MLX (""qwen3.8:27b-mlx"", ""muse-glimmer:30b-mlx""), every
-  other host says GGUF (""qwen3.8:latest"", ""muse-glimmer:latest"").
+  darwin/arm64 says MLX (""qwen3.8:27b-mlx"", ""muse-glimmer:30b-mlx"",
+  ""inkling-2-mini:26b-a5b-nvfp4""), every other host says GGUF
+  (""qwen3.8:latest"", ""muse-glimmer:latest"").
   Picking one on a plan harness also
   answers auth = ""local model"", which withholds the plan credential.
   ""--local-model <tag>"" preselects the option whose Ollama repo owns the tag and,
   untouched, keeps that exact tag; an unlisted tag is drawn as its own option. A
-  REMEMBERED tag of a listed model is re-resolved to this host's build.
+  REMEMBERED tag of a listed model is re-resolved to this host's build of its
+  column's current pick (user: "Re-resolve to Inkling"). A Glimmer cached before
+  the host's Ollama reached 0.40.17 opens on Inkling. A TYPED Glimmer stays Glimmer.
   cursor draws no local options: cursor-agent cannot target a custom endpoint
   (its --endpoint picks a Cursor backend; open feature request
   forum.cursor.com/t/cursor-cli-custom-endpoint-and-api-key-support/129424).
