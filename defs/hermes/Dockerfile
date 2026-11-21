@@ -42,7 +42,7 @@ RUN --mount=type=cache,id=proveo-hermes-apt-cache,target=/var/cache/apt,sharing=
     --mount=type=bind,from=proveo-overlay,target=/proveo-overlay \
     test -n "${HERMES_AGENT_VERSION}" \
     && apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends dumb-init curl jq \
+    && apt-get install -y --no-install-recommends dumb-init curl jq socat \
     && usermod -u 1000 hermes && groupmod -g 1000 hermes \
     && find / -xdev \( -uid 10000 -o -gid 10000 \) -exec chown -h hermes:hermes {} + \
     && install -d -m 0700 -o hermes -g hermes /tmp/hermes-runtime \

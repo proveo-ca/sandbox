@@ -89,6 +89,8 @@ title The harden pass — one script, re-run by every layer that installs
 ' proveo-harden is explicitly NOT implicated in the dockerd privilege failures
 ' recorded in _spec/_devops/image-size-reduction.puml: it only strips setuid and
 ' setgid bits and removes nc/netcat/netstat/ss.
+' socat stays on purpose: sbx's ssh-agent@1 relay runs the image's socat
+' (_spec/cmd/proveo/github-access.puml, THE RELAY IS THE IMAGE'S SOCAT).
 
 component "defs/base/proveo-harden\n""/usr/local/sbin/proveo-harden [paths…]""" as H <<app>>
 

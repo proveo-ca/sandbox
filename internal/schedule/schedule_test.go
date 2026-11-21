@@ -720,3 +720,37 @@ func TestDescribePrintsTheRemoteModelPlan(t *testing.T) {
 		t.Errorf("session line lacks the remote model:\n%s", out.String())
 	}
 }
+
+func TestExitedDetailNamesTheCauseNotTheClosingBlocks(t *testing.T) {
+	t.Parallel()
+	transcript := filepath.Join(t.TempDir(), "20261120-222145.log")
+	body := "Launching hermes\r\n" +
+		"proveo: the seed did not release the agent — sandbox SSH-agent socket /run/ssh-agent.sock missing: this image has no socat\r\n" +
+		"\x1b[31m  error:\x1b[m agent exited with code 1\r\n" +
+		"⚠ proveo-hermes-0ad8f1e5 — kept for diagnosis\r\n" +
+		"● vs code:   code --remote ssh-remote+proveo-hermes-0ad8f1e5.sbx /w\r\n" +
+		"● project:   /w\r\n" +
+		"IDE saves write the host checkout directly\r\n"
+	if err := os.WriteFile(transcript, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ExitFile(transcript), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := "the agent exited 1 before it was ready: proveo: the seed did not release the agent — " +
+		"sandbox SSH-agent socket /run/ssh-agent.sock missing: this image has no socat"
+	if got := exitedDetail(transcript, "before it was ready"); got != want {
+		t.Errorf("detail = %q\nwant     %q", got, want)
+	}
+}
+
+func TestExitedDetailFallsBackToTheTail(t *testing.T) {
+	t.Parallel()
+	transcript := filepath.Join(t.TempDir(), "t.log")
+	if err := os.WriteFile(transcript, []byte("one\ntwo\nthree\nfour\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := exitedDetail(transcript, "after"), "the agent exited after: two | three | four"; got != want {
+		t.Errorf("detail = %q, want %q", got, want)
+	}
+}

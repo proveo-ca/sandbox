@@ -13,13 +13,15 @@ import (
 
 func TestGitHubSSHVerificationRequiresAnAgentAndAcceptsGitHubExitOne(t *testing.T) {
 	for _, tc := range []struct {
-		name, mode, greeting, repoURL      string
-		socket                             bool
-		agentStatus, sshStatus, repoStatus int
-		want                               bool
+		name, mode, greeting, repoURL, cause string
+		socket, noSocat, noSockVar           bool
+		agentStatus, sshStatus, repoStatus   int
+		want                                 bool
 	}{
 		{name: "HTTPS needs no agent", mode: "https", want: true},
-		{name: "missing socket", mode: "ssh", sshStatus: 1},
+		{name: "missing socket", mode: "ssh", sshStatus: 1, cause: "relay did not start"},
+		{name: "missing socket in an image without socat", mode: "ssh", noSocat: true, sshStatus: 1, cause: "this image has no socat"},
+		{name: "no SSH_AUTH_SOCK", mode: "ssh", noSockVar: true, sshStatus: 1, cause: "has no SSH_AUTH_SOCK"},
 		{name: "empty agent", mode: "ssh", socket: true, agentStatus: 1, sshStatus: 1},
 		{name: "unregistered key", mode: "ssh", socket: true, greeting: "Permission denied (publickey).", sshStatus: 255},
 		{name: "wrong greeting", mode: "ssh", socket: true, greeting: "some error", sshStatus: 1},
@@ -29,7 +31,7 @@ func TestGitHubSSHVerificationRequiresAnAgentAndAcceptsGitHubExitOne(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			sock := filepath.Join(dir, "agent.sock")
+			sock := filepath.Join(shortSocketDir(t), "agent.sock")
 			if tc.socket {
 				l, err := net.Listen("unix", sock)
 				if err != nil {
@@ -40,6 +42,7 @@ func TestGitHubSSHVerificationRequiresAnAgentAndAcceptsGitHubExitOne(t *testing.
 			refused := filepath.Join(dir, "refused")
 			script := `source "$1/packages/lib/entrypoint-lib.sh"
 _proveo_bounded() { shift; "$@"; }
+_proveo_has_socat() { [[ "$TEST_NO_SOCAT" != 1 ]]; }
 ssh-add() { return "$TEST_AGENT_STATUS"; }
 ssh() { printf '%s\n' "$TEST_GREETING"; return "$TEST_SSH_STATUS"; }
 git() {
@@ -52,7 +55,15 @@ git() {
 _proveo_scan_root() { printf '%s\n' "$TEST_WORK"; }
 proveo_verify_github_ssh`
 			cmd := exec.Command(bashOrSkip(t), "-c", script, "bash", repoRoot(t))
+			if tc.noSockVar {
+				sock = ""
+			}
+			noSocat := "0"
+			if tc.noSocat {
+				noSocat = "1"
+			}
 			cmd.Env = append(os.Environ(), "BASH_ENV=", "PROVEO_GITHUB_TRANSPORT="+tc.mode, "SSH_AUTH_SOCK="+sock, "PROVEO_SEED_REFUSED="+refused,
+				"TEST_NO_SOCAT="+noSocat,
 				"TEST_GREETING="+tc.greeting, "TEST_WORK="+dir,
 				"TEST_AGENT_STATUS="+strconv.Itoa(tc.agentStatus), "TEST_SSH_STATUS="+strconv.Itoa(tc.sshStatus),
 				"TEST_REPO_URL="+tc.repoURL, "TEST_REPO_STATUS="+strconv.Itoa(tc.repoStatus))
@@ -69,8 +80,8 @@ proveo_verify_github_ssh`
 				}
 				return
 			}
-			if b, err := os.ReadFile(refused); err != nil || !strings.Contains(string(b), "proveo init") {
-				t.Fatalf("no repair diagnostic: %s %v", b, err)
+			if b, err := os.ReadFile(refused); err != nil || !strings.Contains(string(b), "proveo init") || !strings.Contains(string(b), tc.cause) {
+				t.Fatalf("refusal %q (%v) lacks the repair diagnostic or the cause %q", b, err, tc.cause)
 			}
 			launch := exec.Command("sh", filepath.Join(repoRoot(t), "packages/lib/proveo-await-seed"), "sh", "-c", "echo AGENT_LAUNCHED")
 			launch.Env = append(os.Environ(), "SANDBOX_NAME=test", "PROVEO_WORKDIR="+dir, "PROVEO_SEED_REFUSED="+refused, "PROVEO_INSTRUCTIONS_MARKER="+filepath.Join(dir, "marker"), "PROVEO_INSTRUCTIONS_WAIT=0")
@@ -116,4 +127,15 @@ func TestSSHModeDoesNotLaunchBeforeSeedRelease(t *testing.T) {
 			}
 		})
 	}
+}
+
+// shortSocketDir keeps a unix socket path under macOS's 104-byte limit, which $TMPDIR alone exceeds.
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "gh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }

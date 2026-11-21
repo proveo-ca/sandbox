@@ -214,13 +214,37 @@ func exitedDetail(transcript, when string) string {
 		d = fmt.Sprintf("the agent exited %d %s", code, when)
 	}
 	if b, err := os.ReadFile(transcript); err == nil {
-		t := agentsettings.NewTail(3)
+		t := agentsettings.NewTail(transcriptScanLines)
 		_, _ = t.Write(b)
-		if lines := t.Lines(); len(lines) > 0 {
+		if lines := failureLines(t.Lines()); len(lines) > 0 {
 			d += ": " + strings.Join(lines, " | ")
 		}
 	}
 	return d
+}
+
+// transcriptScanLines bounds how far back exitedDetail looks for the cause.
+const transcriptScanLines = 2000
+
+// causeMarks open a transcript line that names why a run ended.
+var causeMarks = []string{"×", "error:", "proveo: the seed did not release the agent"}
+
+// exitCodeOnly is the host's closing line, which repeats the exit code the detail already states.
+var exitCodeOnly = regexp.MustCompile(`^error: agent exited with code \d+$`)
+
+// failureLines is the transcript's last cause line, else its last three lines.
+func failureLines(lines []string) []string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if exitCodeOnly.MatchString(lines[i]) {
+			continue
+		}
+		for _, m := range causeMarks {
+			if strings.HasPrefix(lines[i], m) {
+				return lines[i : i+1]
+			}
+		}
+	}
+	return lines[max(0, len(lines)-3):]
 }
 
 // ReportFile is where a prompt asks the agent to write its final report, in the job's workdir.

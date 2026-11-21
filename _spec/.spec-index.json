@@ -459,7 +459,8 @@
         "internal/backend/sandbox/github_access_test.go",
         "internal/choiceui/credential_lists_test.go",
         "internal/contract/github_access_test.go",
-        "e2e/init_github_access_test.go"
+        "e2e/init_github_access_test.go",
+        "internal/imagetest/ssh_relay_test.go"
       ],
       "fingerprint": null
     },

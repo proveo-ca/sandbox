@@ -2506,12 +2506,19 @@ proveo_trust_workspace_mise() {
  ((found == 0)) || _proveo_persist_tool_env
 }
 
+# _proveo_has_socat reports whether this image ships the binary sbx's ssh-agent relay runs.
+_proveo_has_socat() { command -v socat >/dev/null 2>&1; }
+
 # SPEC: _spec/internal/sbx/startup-dispatch.puml, _spec/cmd/proveo/github-access.puml
 proveo_verify_github_ssh() {
  [[ "${PROVEO_GITHUB_TRANSPORT:-}" == ssh ]] || return 0
  local reason="" greeting="" url="" dir rc=0
- if [[ ! -S "${SSH_AUTH_SOCK:-}" ]]; then
-  reason="sandbox SSH-agent socket missing; enable forwarding and recreate with runtime ssh-agent@1"
+ if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
+  reason="sandbox has no SSH_AUTH_SOCK; enable forwarding and recreate with runtime ssh-agent@1"
+ elif [[ ! -S "$SSH_AUTH_SOCK" ]] && ! _proveo_has_socat; then
+  reason="sandbox SSH-agent socket $SSH_AUTH_SOCK missing: this image has no socat, which sbx's ssh-agent relay runs; rebuild the image with socat"
+ elif [[ ! -S "$SSH_AUTH_SOCK" ]]; then
+  reason="sandbox SSH-agent socket $SSH_AUTH_SOCK missing: sbx's ssh-agent relay did not start; recreate the sandbox"
  elif ! _proveo_bounded 5 ssh-add -l >/dev/null 2>&1; then
   reason="forwarded SSH agent has no available key; load a GitHub authentication key on the host"
  else

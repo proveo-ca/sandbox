@@ -18,7 +18,6 @@ unit_baseline = """\
   TestConfigSyncNeverGlobsTheSkipListAgainstTheCwd|\
   TestConfigSyncRoundTripsTheHarnessConfiguration|\
   TestConfigSyncSkipsTransientPathsBothWays|\
-  TestGitHubSSHVerificationRequiresAnAgentAndAcceptsGitHubExitOne|\
   TestOpenCodeCredentialHookWaitsForHistory|\
   TestOpenCodeNativeGitSyncPluginLifecycle|\
   TestOpenCodeSeedProgressFixtures|\
