@@ -15,33 +15,33 @@ import (
 )
 
 type Params struct {
-	Target, Image, Credentials, LocalModel, Input, Output, Scope, DataDir string
-	ImageSet                                                              bool
-	BrowserProfile                                                        string
-	CredsSet                                                              bool
-	Addons                                                                []string
-	AddonsAnswered                                                        bool // a cached or prompted answer exists; default-on add-ons stop defaulting
-	AddonsSet                                                             bool // --addon was passed; the cache does not override it
-	Yes                                                                   bool // --yes: accept the cached and flagged choices without drawing the form
-	Roles                                                                 provider.Roles
-	RolesRemembered                                                       provider.Roles
-	AuthVar                                                               string
-	HostEnvFile                                                           string
-	Evidence                                                              string
-	MCP                                                                   string // mcpOn or mcpOff; "" until chosen
-	MCPSet                                                                bool   // PROVEO_SBX_MCP was set; the cache and the row do not override it
-	MiseTrust                                                             string
-	MiseTrustSet                                                          bool
-	GitTransport                                                          string
-	PrintOnly                                                             bool
-	Extra                                                                 []string
-	Clone, CloneSet                                                       bool
-	Ports                                                                 []devports.Candidate
-	discovered                                                            []devports.Candidate
-	portsAsked                                                            bool // the form drew the ports row
-	Apps                                                                  []devports.AndroidApp
-	discoveredApps                                                        []devports.AndroidApp
-	appsAsked                                                             bool // the form drew the apps row
+	Target, Image, Credentials, LocalModel, Model, Input, Output, Scope, DataDir string
+	ImageSet                                                                     bool
+	BrowserProfile                                                               string
+	CredsSet                                                                     bool
+	Addons                                                                       []string
+	AddonsAnswered                                                               bool // a cached or prompted answer exists; default-on add-ons stop defaulting
+	AddonsSet                                                                    bool // --addon was passed; the cache does not override it
+	Yes                                                                          bool // --yes: accept the cached and flagged choices without drawing the form
+	Roles                                                                        provider.Roles
+	RolesRemembered                                                              provider.Roles
+	AuthVar                                                                      string
+	HostEnvFile                                                                  string
+	Evidence                                                                     string
+	MCP                                                                          string // mcpOn or mcpOff; "" until chosen
+	MCPSet                                                                       bool   // PROVEO_SBX_MCP was set; the cache and the row do not override it
+	MiseTrust                                                                    string
+	MiseTrustSet                                                                 bool
+	GitTransport                                                                 string
+	PrintOnly                                                                    bool
+	Extra                                                                        []string
+	Clone, CloneSet                                                              bool
+	Ports                                                                        []devports.Candidate
+	discovered                                                                   []devports.Candidate
+	portsAsked                                                                   bool // the form drew the ports row
+	Apps                                                                         []devports.AndroidApp
+	discoveredApps                                                               []devports.AndroidApp
+	appsAsked                                                                    bool // the form drew the apps row
 }
 
 // clone copies p deeply enough that a later page cannot change the original.

@@ -334,3 +334,50 @@ func TestApplySourceSetsLocalModelAndAuthTogether(t *testing.T) {
 		t.Errorf("an untouched preselection must keep the flag's tag, got %q", keep.LocalModel)
 	}
 }
+
+func TestApplyRemoteModelRoutesByHarness(t *testing.T) {
+	t.Parallel()
+	p := Params{Target: "opencode", Model: "opencode-go/glm-5.3"}
+	if err := applyRemoteModel(&p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Extra) != 2 || p.Extra[0] != "-m" || p.Extra[1] != "opencode-go/glm-5.3" {
+		t.Errorf("opencode extra = %v; want [-m opencode-go/glm-5.3]", p.Extra)
+	}
+	p = Params{Target: "codex", Model: "gpt-x"}
+	if err := applyRemoteModel(&p); err != nil || p.Extra[0] != "--model" {
+		t.Errorf("codex route = %v (%v); want --model", p.Extra, err)
+	}
+	p = Params{Target: "codex", Model: "gpt-5", Extra: []string{"resume", "--last", "--", "review this diff"}}
+	want := []string{"resume", "--last", "--model", "gpt-5", "--", "review this diff"}
+	if err := applyRemoteModel(&p); err != nil || !slices.Equal(p.Extra, want) {
+		t.Errorf("codex resume route = %v (%v); want %v", p.Extra, err, want)
+	}
+	if err := applyRemoteModel(&Params{Target: "cursor", Model: "any/model"}); err == nil {
+		t.Error("cursor must refuse --model (vendor-pinned)")
+	}
+	if err := applyRemoteModel(&Params{Target: "hermes"}); err != nil {
+		t.Errorf("no --model set: %v", err)
+	}
+	p = Params{Target: "opencode"}
+	if err := applyRemoteModel(&p); err != nil || len(p.Extra) != 0 {
+		t.Errorf("no --model must touch nothing: %v (%v)", p.Extra, err)
+	}
+}
+
+func TestModelPinKeysNamesTheProviderKey(t *testing.T) {
+	t.Parallel()
+	msgs := modelPinKeys(&Params{Target: "opencode", Model: "opencode-go/glm-5"}, nil, nil)
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "needs OPENCODE_API_KEY (opencode), which is not set") {
+		t.Errorf("pin keys = %v; want the OPENCODE_API_KEY ask", msgs)
+	}
+	if msgs := modelPinKeys(&Params{Target: "opencode", Model: "opencode-go/glm-5"}, []string{"opencode"}, nil); len(msgs) != 0 {
+		t.Errorf("a detected provider must stay silent: %v", msgs)
+	}
+	if msgs := modelPinKeys(&Params{Target: "opencode"}, nil, nil); len(msgs) != 0 {
+		t.Errorf("no pin must stay silent: %v", msgs)
+	}
+	if msgs := modelPinKeys(&Params{Target: "opencode", Model: "weird/unknown"}, nil, nil); len(msgs) != 0 {
+		t.Errorf("an unknown provider must stay silent: %v", msgs)
+	}
+}

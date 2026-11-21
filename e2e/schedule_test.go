@@ -17,6 +17,46 @@ import (
 	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
+func TestSchedulePrintRoutesModelAndPreservesHarnessDelimiter(t *testing.T) {
+	proveo := buildProveo(t)
+	home := t.TempDir()
+	prompt := filepath.Join(home, "prompt.md")
+	if err := os.WriteFile(prompt, []byte("Review the diff.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf(`jobs:
+  remote:
+    target: opencode
+    model: opencode-go/glm-5.3
+    prompt_file: %q
+    args: ["--", "--", "review this diff"]
+  local:
+    target: hermes
+    model: team/model:tag
+    prompt_file: %q
+`, prompt, prompt)
+	if err := os.WriteFile(schedule.Path(home), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := append(childEnvArgsNoCredential(t), "PROVEO_HOME="+home, "PROVEO_STATE_ROOT="+t.TempDir())
+	for _, tc := range []struct{ job, section, want string }{
+		{"remote", "# in-sandbox", "opencode -m opencode-go/glm-5.3 -- 'review this diff'"},
+		{"local", "# session (tmux proveo-sched-local)", "'--local-model' 'team/model:tag'"},
+	} {
+		t.Run(tc.job, func(t *testing.T) {
+			cmd := exec.Command("env", append(env, proveo, "schedule", "run", tc.job, "--print")...)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("schedule run --print: %v\n%s", err, out)
+			}
+			got := printedLine(t, string(out), tc.section)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("%s = %q, want %q", tc.section, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestScheduleFiresAtItsTimeAndTypesThePrompt drives the real tick → tmux → watcher chain with no
 // model: a stand-in agent prints a ready marker and echoes the one line it is given. It asserts only
 // the two things a schedule promises — WHEN it fired, and WHAT it typed.

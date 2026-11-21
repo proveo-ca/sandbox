@@ -191,15 +191,16 @@ func doList(w io.Writer) error {
 
 // runFlags are the flags shared by `proveo run` and each harness alias.
 type runFlags struct {
-	credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID, browserProfile string
-	printOnly, contSession, listSessions, cloneMode, yes                                            bool
-	addons                                                                                          []string
+	credentials, localModel, model, input, output, scope, dataDir, imageOverride, resumeID, browserProfile string
+	printOnly, contSession, listSessions, cloneMode, yes                                                   bool
+	addons                                                                                                 []string
 }
 
 func (f *runFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.credentials, "credentials", "broker",
 		strings.Join(run.CredentialModes(), "|")+" (default broker: sbx's proxy holds the key and attaches it; forward puts it in the sandbox env)")
 	cmd.Flags().StringVar(&f.localModel, "local-model", "", "Ollama model to serve locally")
+	cmd.Flags().StringVar(&f.model, "model", "", "Provider/model to pin the agent on, e.g. opencode-go/glm-5.3 (reaches the harness's native flag)")
 	cmd.Flags().StringVar(&f.input, "input", "", "input dir to mount read-only (default: cwd)")
 	cmd.Flags().StringVar(&f.output, "output", "", "output dir to mount read-write (default: <input>/reports)")
 	cmd.Flags().StringVar(&f.scope, "scope", "", "monorepo sub-project to open (repo-relative; omit for an interactive picker)")
@@ -254,7 +255,7 @@ func (f *runFlags) execute(cmd *cobra.Command, target string, extra []string) er
 	return run.Do(run.Params{
 		Target: target, Image: image, ImageSet: f.imageOverride != "", Credentials: f.credentials,
 		BrowserProfile: f.browserProfile,
-		CredsSet:       credsSet, LocalModel: f.localModel,
+		CredsSet:       credsSet, LocalModel: f.localModel, Model: f.model,
 		Input: f.input, Output: f.output, Scope: f.scope, DataDir: f.dataDir,
 		PrintOnly: f.printOnly, Extra: extra,
 		Clone: f.cloneMode, CloneSet: cmd.Flags().Changed("clone"),

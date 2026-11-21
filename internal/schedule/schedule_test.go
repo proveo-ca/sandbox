@@ -676,3 +676,47 @@ func TestDescribeSkipsThePlanForAJobWithItsOwnCommand(t *testing.T) {
 		t.Errorf("session line lacks the job's command:\n%s", out.String())
 	}
 }
+
+func TestRunArgvSplitsRemoteModelsFromLocalTags(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ target, model, flag string }{
+		{"opencode", "opencode-go/glm-5.3", "--model"},
+		{"opencode", "openrouter/meta-llama/llama-3.3-70b-instruct:free", "--model"},
+		{"opencode", "qwen3.8:27b", "--local-model"},
+		{"hermes", "team/model:tag", "--local-model"},
+		{"hermes", "team/model", "--local-model"},
+		{"hermes", "mistral/model:tag", "--local-model"},
+	} {
+		j := Job{Target: tc.target, Model: tc.model}
+		want := []string{"/bin/proveo", "run", tc.target, "--yes", tc.flag, tc.model}
+		if got := j.RunArgv("/bin/proveo"); !slices.Equal(got, want) {
+			t.Errorf("argv = %v\nwant   %v", got, want)
+		}
+	}
+}
+
+func TestDescribePrintsTheRemoteModelPlan(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("ship\n  the  fix"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := Job{Target: "opencode", Model: "opencode-go/glm-5.3", PromptFile: prompt, Budget: "45m", Timezone: "UTC"}
+	var gotArgv []string
+	var out strings.Builder
+	now := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	err := Describe(&out, home, "/bin/proveo", "remote-model", j, now, func(argv []string, _ string) error {
+		gotArgv = argv
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"/bin/proveo", "run", "--print", "opencode", "--yes", "--model", "opencode-go/glm-5.3"}; !slices.Equal(gotArgv, want) {
+		t.Errorf("print argv = %v\nwant         %v", gotArgv, want)
+	}
+	if !strings.Contains(out.String(), "'--model' 'opencode-go/glm-5.3'") {
+		t.Errorf("session line lacks the remote model:\n%s", out.String())
+	}
+}

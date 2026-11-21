@@ -41,7 +41,7 @@ skinparam noteTextAlignment left
 '          whose newest `at` entry fell within catch_up (20 m) and has not fired:
 '          mark it fired, then Launch
 '   Launch tmux session proveo-sched-<job> running `PROVEO_SCHEDULE=1 proveo run
-'          <target> --yes --local-model … --addon …` (or the job's `command`),
+'          <target> --yes [--model … | --local-model …] --addon …` (or the job's `command`),
 '          pipe-pane to
 '          ~/.proveo/logs/schedule/<job>/<stamp>.log, and a detached (setsid)
 '          `proveo schedule watch`
@@ -384,6 +384,45 @@ skinparam noteTextAlignment left
 ' Print mode skips the choice cache, but a scheduled run applies it (pty), so
 ' under PROVEO_SCHEDULE the print seeds from the cache too; it never saves.
 '
+' ── MODEL: REMOTE SPECS + PRINT WITHOUT SBX (2026-11-20) ───────────────────
+' covers: internal/run/model_row.go (modelFlags, acceptsRemoteModel, applyRemoteModel)
+' covers: internal/run/run.go (applyRemoteModel call), internal/run/params.go (Model)
+' covers: internal/backend/sandbox/sandbox.go (Ready, sbxAvailable, ensureBackend)
+' covers: internal/backend/sandbox/ready_test.go, internal/run/model_row_test.go
+' covers: internal/run/credential_report_test.go, e2e/schedule_test.go
+' Executor asked for a dry run on a host with no sbx, and a schedule job that
+' pins a remote provider model (opencode on the Go membership, GLM 5.3 max).
+'   model split   `model: provider/model` uses `--model` for a registered provider
+'                  or alias. Plain Ollama names, unregistered namespaces and
+'                  one-slash tagged values use `--local-model`. A registered
+'                  provider may carry a nested model id and a suffix, as with
+'                  OpenRouter. To disambiguate a value, omit `model:` and name
+'                  `--model` or `--local-model` in the job's `args:`.
+'   native argv   `proveo run --model` adds opencode `-m` or Codex/Claude Code
+'                  `--model` before the first harness `--`, or at the end
+'                  when there is no delimiter. This preserves native subcommands
+'                  and keeps the pin outside positional prompt text.
+'   print w/o sbx  Ready under --print: an unavailable backend warns and
+'                  proceeds — --print describes a run, it does not host one.
+'                  The kit write and every print block compose in-process
+'                  (measured: run.go's print tail writes files, calls no
+'                  binary), so `proveo schedule run <job> --print` now works
+'                  on a host with no sbx CLI: the whole YAML-driven chain —
+'                  session, sandbox plan, agent launch line, typed goal.
+'                  A live run still refuses without the backend.
+'   pin key ask   a pinned --model joins the credentials block through the same
+'                  resolution roles use (provider registry → AuthVars): an
+'                  opencode-go/* pin with no opencode credential detected
+'                  prints "--model … needs OPENCODE_API_KEY (opencode), which
+'                  is not set — `sbx secret set OPENCODE_API_KEY` stages it",
+'                  in live and print modes both. When the auth choice withholds
+'                  every detected credential for the provider, the warning names
+'                  that choice. A detected provider with a surviving credential
+'                  keeps the credentials block quiet about the pin.
+' NOT CHOSEN: routing --model through each harness's env (CODEX_MODEL,
+' OPENCODE_MODEL) — the argv passthrough is one seam, printed by DESCRIBE,
+' instead of per-harness env plumbing the print path cannot show.
+
 ' ── E2E, NO MODEL ──────────────────────────────────────────────────────────
 ' A `command:` job stands in for the agent: it prints FAKE-READY>, reads one
 ' line, echoes it. The test pins PROVEO_SCHEDULE_NOW, runs a real tick, and

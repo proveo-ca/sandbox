@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
+	"github.com/proveo-ca/proveo/internal/provider"
 )
 
 const (
@@ -66,12 +67,26 @@ func (j Job) RunArgv(proveo string) []string {
 	}
 	argv := []string{proveo, "run", j.Target, "--yes"}
 	if j.Model != "" {
-		argv = append(argv, "--local-model", j.Model)
+		flag := "--local-model"
+		if isRemoteModel(j.Model) {
+			flag = "--model"
+		}
+		argv = append(argv, flag, j.Model)
 	}
 	for _, a := range j.Addons {
 		argv = append(argv, "--addon", a)
 	}
 	return append(argv, j.Args...)
+}
+
+// SPEC: _spec/internal/schedule/schedule.puml (MODEL: REMOTE SPECS + PRINT WITHOUT SBX)
+func isRemoteModel(model string) bool {
+	_, id, hasProvider := strings.Cut(model, "/")
+	if !hasProvider || id == "" || (strings.Contains(id, ":") && !strings.Contains(id, "/")) {
+		return false
+	}
+	_, known := provider.Lookup(provider.ModelProvider(model))
+	return known
 }
 
 // Instruction is the one line typed into the agent: the prompt file flattened, under the job's mode.

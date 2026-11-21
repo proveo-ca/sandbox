@@ -99,14 +99,26 @@ func installVerb(installed bool) (verb, doing string) {
 	return "install", "installing"
 }
 
+// sbxAvailable and ensureBackend are the probes Ready reads; vars so tests can stub a missing sbx.
+var (
+	sbxAvailable  = sbx.Available
+	ensureBackend = Ensure
+)
+
 func Ready(printOnly bool, confirm func(string) bool) (bool, string) {
-	ready := Ensure
+	ready := ensureBackend
 	if printOnly {
-		ready = func(func(string) bool) (bool, string) { return sbx.Available() }
+		ready = func(func(string) bool) (bool, string) { return sbxAvailable() }
 	}
 	ok, why := ready(confirm)
 	if ok {
 		warnUnverified(sbx.Version)
+		return ok, why
+	}
+	// --print describes a run, it does not host one: keep going without the backend.
+	if printOnly {
+		ui.Warnf("sbx unavailable (%s) — printing the plan without the backend; a real run needs sbx", why)
+		return true, why
 	}
 	return ok, why
 }
